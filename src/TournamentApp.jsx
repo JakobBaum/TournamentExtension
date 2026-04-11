@@ -103,6 +103,8 @@ const activeMatchWatchers = new Set();
 const cancelledMatchWatchers = new Set();
 const LAST_TOURNAMENT_STORAGE_KEY = "adTournamentLastTournamentId";
 
+const cx = (...classes) => classes.filter(Boolean).join(" ");
+
 const isRealPlayer = (player) => player && typeof player === "object" && player.type === "player";
 const isBye = (player) => player && typeof player === "object" && player.type === "bye";
 
@@ -654,7 +656,7 @@ function MatchPlayerRow({ match, slot, matchMode, onGiveUpMatch }) {
   const isWinner = match?.winner?.name && match?.winner?.name === player?.name;
 
   return (
-    <div className={`player-row compact-player-row ${isWinner ? "winner-row" : ""}`}>
+    <div className={cx("player-row", "compact-player-row", isWinner && "winner-row")}>
       <div className="player-row-main">
         <span className="player-name-text">{getDisplayName(player)}</span>
         {isWinner && <span className="winner-badge">Sieger</span>}
@@ -663,7 +665,7 @@ function MatchPlayerRow({ match, slot, matchMode, onGiveUpMatch }) {
       <div className="player-row-actions">
         {score !== null && <span className="player-score">{score}</span>}
         {canGiveUp(match) && (
-          <button type="button" className="forfeit-btn" onClick={() => onGiveUpMatch(match, slot)}>
+          <button type="button" className="btn btn--danger btn--xs" onClick={() => onGiveUpMatch(match, slot)}>
             Aufgeben
           </button>
         )}
@@ -722,7 +724,7 @@ function MatchCard({
 
       <div className="match-card-actions">
         {canStartMatch(match) && (
-          <button className="start-match-btn compact-btn" onClick={() => onStartMatch(match)}>
+          <button className="btn btn--primary btn--compact btn--full" onClick={() => onStartMatch(match)}>
             Starten
           </button>
         )}
@@ -730,7 +732,7 @@ function MatchCard({
         {isLiveMatch(match) && match.lobbyId && (
           <>
             <button
-              className="secondary-btn compact-btn open-match"
+              className="btn btn--secondary btn--compact open-match"
               onClick={() => {
                 const matchUrl = `https://play.autodarts.io/matches/${match.lobbyId}`;
                 window.open(matchUrl, "_blank", "noopener,noreferrer");
@@ -739,20 +741,20 @@ function MatchCard({
               Spiel öffnen
             </button>
 
-            <button className="secondary-btn compact-btn" onClick={() => onAbortLiveMatch(match)}>
+            <button className="btn btn--secondary btn--compact" onClick={() => onAbortLiveMatch(match)}>
               Abbrechen
             </button>
           </>
         )}
 
         {canRestartMatch(match) && (
-          <button className="secondary-btn compact-btn" onClick={() => onRestartMatch(match)}>
+          <button className="btn btn--secondary btn--compact" onClick={() => onRestartMatch(match)}>
             Spiel neu starten
           </button>
         )}
 
         {canEditResult(match) && (
-          <button className="secondary-btn compact-btn" onClick={() => onEditResult(match)}>
+          <button className="btn btn--secondary btn--compact" onClick={() => onEditResult(match)}>
             {match.status === "aborted" ? "Ergebnis eingeben" : "Ergebnis korrigieren"}
           </button>
         )}
@@ -809,7 +811,7 @@ function BoardOverview({ boards, matches, onReleaseBoard }) {
 
                 {isBusy && (
                   <button
-                    className="secondary-btn compact-btn"
+                    className="btn btn--secondary btn--compact"
                     onClick={() => onReleaseBoard(board, currentMatch)}
                   >
                     Manuell freigeben
@@ -882,8 +884,8 @@ function FinalStandingsTable({ matches, players, tournamentName }) {
         badge={`${sortedPlayers.length} Spieler`}
         defaultOpen={true}
       >
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 1100 }}>
+        <div className="final-standings-wrap">
+          <table className="final-standings-table">
             <thead>
               <tr>
                 {[
@@ -901,159 +903,36 @@ function FinalStandingsTable({ matches, players, tournamentName }) {
                   "171+/180",
                   "Bestes Checkout",
                 ].map((head) => (
-                  <th
-                    key={head}
-                    style={{
-                      textAlign: "left",
-                      padding: "10px 12px",
-                      borderBottom: "2px solid rgba(255,255,255,0.14)",
-                      color: "#dbe8ff",
-                      fontSize: 12,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.06em",
-                    }}
-                  >
-                    {head}
-                  </th>
+                  <th key={head}>{head}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {sortedPlayers.map((player, index) => {
                 const rank = index + 1;
-                const cellBackground = rank <= 3 ? "rgba(255,255,255,0.03)" : "transparent";
+                const highlightClass = rank <= 3 ? "is-highlighted" : "";
 
                 return (
                   <tr key={player.id || player.name}>
-                    <td
-                      style={{
-                        border: "2px solid rgba(255,255,255,0.14)",
-                        padding: "10px 12px",
-                        textAlign: "center",
-                        fontWeight: 700,
-                      }}
-                    >
-                      {rank}
-                    </td>
-                    <td
-                      style={{
-                        border: "2px solid rgba(255,255,255,0.14)",
-                        padding: "10px 12px",
-                        fontWeight: 700,
-                      }}
-                    >
-                      {player.name}
-                    </td>
-                    <td
-                      style={{
-                        border: "2px solid rgba(255,255,255,0.14)",
-                        padding: "10px 12px",
-                        textAlign: "center",
-                        background: cellBackground,
-                      }}
-                    >
-                      {Number(player.wins || 0)}
-                    </td>
-                    <td
-                      style={{
-                        border: "2px solid rgba(255,255,255,0.14)",
-                        padding: "10px 12px",
-                        textAlign: "center",
-                        background: cellBackground,
-                      }}
-                    >
-                      {Number(player.losses || 0)}
-                    </td>
-                    <td
-                      style={{
-                        border: "2px solid rgba(255,255,255,0.14)",
-                        padding: "10px 12px",
-                        textAlign: "center",
-                        background: cellBackground,
-                      }}
-                    >
+                    <td className="final-standings-rank">{rank}</td>
+                    <td className="final-standings-player">{player.name}</td>
+                    <td className={cx("final-standings-stat", highlightClass)}>{Number(player.wins || 0)}</td>
+                    <td className={cx("final-standings-stat", highlightClass)}>{Number(player.losses || 0)}</td>
+                    <td className={cx("final-standings-stat", highlightClass)}>
                       {Number(player.legsWon || 0)} / {Number(player.legsLost || 0)}
                     </td>
-                    <td
-                      style={{
-                        border: "2px solid rgba(255,255,255,0.14)",
-                        padding: "10px 12px",
-                        textAlign: "center",
-                        background: cellBackground,
-                      }}
-                    >
+                    <td className={cx("final-standings-stat", highlightClass)}>
                       {Number(player.setsWon || 0)} / {Number(player.setsLost || 0)}
                     </td>
-                    <td
-                      style={{
-                        border: "2px solid rgba(255,255,255,0.14)",
-                        padding: "10px 12px",
-                        textAlign: "center",
-                        background: cellBackground,
-                      }}
-                    >
-                      {formatStatValue(player.average, 1)}
+                    <td className={cx("final-standings-stat", highlightClass)}>{formatStatValue(player.average, 1)}</td>
+                    <td className={cx("final-standings-stat", highlightClass)}>
+                      {formatStatValue(player.checkoutPercent, 1)}%
                     </td>
-                    <td
-                      style={{
-                        border: "2px solid rgba(255,255,255,0.14)",
-                        padding: "10px 12px",
-                        textAlign: "center",
-                        background: cellBackground,
-                      }}
-                    >
-                     {formatStatValue(player.checkoutPercent, 1)}%
-                    </td>
-                    <td
-                      style={{
-                        border: "2px solid rgba(255,255,255,0.14)",
-                        padding: "10px 12px",
-                        textAlign: "center",
-                        background: cellBackground,
-                      }}
-                    >
-                      {Number(player.plus60 || 0)}
-                    </td>
-                    <td
-                      style={{
-                        border: "2px solid rgba(255,255,255,0.14)",
-                        padding: "10px 12px",
-                        textAlign: "center",
-                        background: cellBackground,
-                      }}
-                    >
-                      {Number(player.plus100 || 0)}
-                    </td>
-                    <td
-                      style={{
-                        border: "2px solid rgba(255,255,255,0.14)",
-                        padding: "10px 12px",
-                        textAlign: "center",
-                        background: cellBackground,
-                      }}
-                    >
-                      {Number(player.plus140 || 0)}
-                    </td>
-                    <td
-                      style={{
-                        border: "2px solid rgba(255,255,255,0.14)",
-                        padding: "10px 12px",
-                        textAlign: "center",
-                        background: cellBackground,
-                      }}
-                    >
-                      {Number(player.plus171Or180 || 0)}
-                    </td>
-                    <td
-                      style={{
-                        border: "2px solid rgba(255,255,255,0.14)",
-                        padding: "10px 12px",
-                        textAlign: "center",
-                        background: cellBackground,
-                      }}
-                    >
-                      {Number(player.bestCheckout || 0)}
-                    </td>
+                    <td className={cx("final-standings-stat", highlightClass)}>{Number(player.plus60 || 0)}</td>
+                    <td className={cx("final-standings-stat", highlightClass)}>{Number(player.plus100 || 0)}</td>
+                    <td className={cx("final-standings-stat", highlightClass)}>{Number(player.plus140 || 0)}</td>
+                    <td className={cx("final-standings-stat", highlightClass)}>{Number(player.plus171Or180 || 0)}</td>
+                    <td className={cx("final-standings-stat", highlightClass)}>{Number(player.bestCheckout || 0)}</td>
                   </tr>
                 );
               })}
@@ -1831,43 +1710,6 @@ export default function TournamentApp() {
   const tournamentFinished = useMemo(() => isTournamentFinished(matches), [matches]);
 
   const renderHome = () => {
-    if (screen === "join") {
-      return (
-        <div className="start-screen">
-          <div className="start-card">
-            <div className="start-card-head">
-              <div>
-                <h2>AutoDarts Turnier beitreten</h2>
-                <div className="start-subtitle">Öffne ein bestehendes Turnier über den Turniercode.</div>
-                <div className="start-subtitle">Turniername: {tournamentName || "Mein Turnier"} · {tournamentEnvironment === "online" ? "Online" : "Offline"}</div>
-              </div>
-            </div>
-
-            <div className="config-sections">
-              <div className="config-card join-card">
-                <div className="config-card-title">Turnier öffnen</div>
-                <div className="join-row">
-                  <input
-                    value={joinCode}
-                    onChange={(e) => setJoinCode(e.target.value)}
-                    placeholder="Turniercode eingeben"
-                  />
-                  <button onClick={joinTournament} disabled={joiningTournament}>
-                    {joiningTournament ? "Lade..." : "Beitreten"}
-                  </button>
-                </div>
-              </div>
-
-              <div className="actions">
-                <button className="secondary-btn" onClick={() => setScreen("home")}>
-                  Zurück
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      );
-    }
 
     if (screen === "create") {
       return (
@@ -1890,14 +1732,14 @@ export default function TournamentApp() {
                   if (e.key === "Enter") addPlayer();
                 }}
               />
-              <button onClick={addPlayer}>Hinzufügen</button>
+              <button className="btn btn--primary" onClick={addPlayer}>Hinzufügen</button>
             </div>
 
             <div className="players-list">
               {players.map((player) => (
                 <div className="player-item" key={player}>
                   <span>{player}</span>
-                  <button className="remove-btn" onClick={() => removePlayer(player)}>
+                  <button className="btn btn--icon remove-btn" onClick={() => removePlayer(player)}>
                     ×
                   </button>
                 </div>
@@ -1907,7 +1749,7 @@ export default function TournamentApp() {
 
           <div className="tournament-container">
             <div className="form-topbar">
-              <button className="secondary-btn" onClick={() => setScreen("home")}>
+              <button className="btn btn--secondary" onClick={() => setScreen("home")}>
                 Zurück
               </button>
             </div>
@@ -2103,7 +1945,7 @@ export default function TournamentApp() {
                       );
 
                       return (
-                        <label key={board.id} className="player-item" style={{ cursor: "pointer" }}>
+                        <label key={board.id} className="player-item board-select-item">
                           <span>{board.name || board.id}</span>
                           <input
                             type="checkbox"
@@ -2130,10 +1972,10 @@ export default function TournamentApp() {
               </div>
 
               <div className="actions">
-                <button className="secondary-btn" onClick={() => setScreen("home")}>
+                <button className="btn btn--secondary" onClick={() => setScreen("home")}>
                   Zurück
                 </button>
-                <button onClick={createTournament} disabled={creatingTournament}>
+                <button className="btn btn--primary" onClick={createTournament} disabled={creatingTournament}>
                   {creatingTournament ? "Erstelle..." : "Turnier erstellen"}
                 </button>
               </div>
@@ -2153,52 +1995,35 @@ export default function TournamentApp() {
             </div>
           </div>
 
-          <div className="config-sections start-home-sections">
-            <div className="config-card">
-              <div className="config-card-title">Start</div>
-              <div className="grid">
-                <div className="field">
-                  <label>Turniername</label>
+          <div className="config-sections">
+            <div className="config-card join-card">
+              <div className="config-card-title">Turnier erstellen</div>
+                <div className="join-row">
                   <input
                     value={tournamentName}
                     onChange={(e) => setTournamentName(e.target.value)}
                     placeholder="Turniername eingeben"
                   />
-                </div>
-
-                <div className="field">
-                  <label>Typ</label>
-                  <div className="environment-toggle" role="group" aria-label="Online oder Offline auswählen">
-                    <button
-                      type="button"
-                      className={`environment-option ${tournamentEnvironment === "online" ? "active" : ""}`.trim()}
-                      onClick={() => setTournamentEnvironment("online")}
-                    >
-                      Online
-                    </button>
-                    <button
-                      type="button"
-                      className={`environment-option ${tournamentEnvironment === "offline" ? "active" : ""}`.trim()}
-                      onClick={() => setTournamentEnvironment("offline")}
-                    >
-                      Offline
-                    </button>
-                  </div>
-                  <div className="panel-subtitle">Aktuell nur Platzhalter, noch ohne Logik.</div>
+                 <button className="btn btn--primary" onClick={() => setScreen("create")}>
+                 {creatingTournament ? "erstelle..." : "Erstellen"}
+                </button>
                 </div>
               </div>
-            </div>
 
-            <div className="start-option-grid">
-              <button type="button" className="start-option-card" onClick={() => setScreen("create")}>
-                <span className="start-option-title">Turnier erstellen</span>
-                <span className="start-option-text">{tournamentName || "Mein Turnier"} als {tournamentEnvironment === "online" ? "Online" : "Offline"} öffnen.</span>
-              </button>
-
-              <button type="button" className="start-option-card" onClick={() => setScreen("join")}>
-                <span className="start-option-title">Turnier beitreten</span>
-                <span className="start-option-text">Mit Turniercode {tournamentName || "Mein Turnier"} beitreten.</span>
-              </button>
+            <div className="config-sections">
+              <div className="config-card join-card">
+                <div className="config-card-title">Turnier öffnen</div>
+                <div className="join-row">
+                  <input
+                    value={joinCode}
+                    onChange={(e) => setJoinCode(e.target.value)}
+                    placeholder="Turniercode eingeben"
+                  />
+                  <button className="btn btn--primary" onClick={joinTournament} disabled={joiningTournament}>
+                    {joiningTournament ? "Lade..." : "Beitreten"}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -2222,10 +2047,10 @@ export default function TournamentApp() {
             </div>
 
             <div className="bracket-header-actions">
-              <button className="secondary-btn" onClick={() => setShowSettingsDialog(true)}>
+              <button className="btn btn--secondary" onClick={() => setShowSettingsDialog(true)}>
                 Einstellungen
               </button>
-              <button className="secondary-btn" onClick={handleLeaveTournament}>
+              <button className="btn btn--secondary" onClick={handleLeaveTournament}>
                 Turnier verlassen
               </button>
             </div>
@@ -2280,12 +2105,7 @@ export default function TournamentApp() {
       {showSettingsDialog && (
         <div className="board-dialog-overlay">
           <div
-            className="board-dialog"
-            style={{
-              width: "min(920px, calc(100vw - 40px))",
-              maxHeight: "85vh",
-              overflowY: "auto",
-            }}
+            className="board-dialog board-dialog--wide"
           >
             <h3>Turniereinstellungen bearbeiten</h3>
             <div className="board-dialog-subtitle">
@@ -2425,11 +2245,11 @@ export default function TournamentApp() {
             </div>
 
             <div className="board-dialog-actions">
-              <button className="secondary-btn" onClick={() => setShowSettingsDialog(false)}>
+              <button className="btn btn--secondary" onClick={() => setShowSettingsDialog(false)}>
                 Schließen
               </button>
               <button
-                className="start-match-btn"
+                className="btn btn--primary"
                 onClick={async () => {
                   await handleSaveTournamentSettings();
                   setShowSettingsDialog(false);
@@ -2461,13 +2281,13 @@ export default function TournamentApp() {
               </select>
             </div>
 
-            <div className="board-dialog-subtitle" style={{ marginTop: 12 }}>
+            <div className="board-dialog-subtitle dialog-subtitle-spaced">
               Ausgewählt: <strong>{selectedBoardName || "—"}</strong>
             </div>
 
             <div className="board-dialog-actions">
               <button
-                className="secondary-btn"
+                className="btn btn--secondary"
                 onClick={() => {
                   setShowBoardDialog(false);
                   setSelectedBoardId("");
@@ -2477,7 +2297,7 @@ export default function TournamentApp() {
                 Abbrechen
               </button>
 
-              <button className="start-match-btn" onClick={confirmStartMatch}>
+              <button className="btn btn--primary" onClick={confirmStartMatch}>
                 Spiel starten
               </button>
             </div>
@@ -2505,7 +2325,7 @@ export default function TournamentApp() {
               </select>
             </div>
 
-            <div className="dialog-score-grid" style={{ marginTop: 12 }}>
+            <div className="dialog-score-grid dialog-score-grid-spaced">
               <div className="field">
                 <label>Punkte / Legs Spieler 1</label>
                 <input
@@ -2527,7 +2347,7 @@ export default function TournamentApp() {
 
             <div className="board-dialog-actions">
               <button
-                className="secondary-btn"
+                className="btn btn--secondary"
                 onClick={() => {
                   setShowEditResultDialog(false);
                   setEditingMatch(null);
@@ -2539,7 +2359,7 @@ export default function TournamentApp() {
                 Schließen
               </button>
 
-              <button className="start-match-btn" onClick={handleSaveEditedResult}>
+              <button className="btn btn--primary" onClick={handleSaveEditedResult}>
                 Speichern
               </button>
             </div>
