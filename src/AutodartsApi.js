@@ -209,22 +209,32 @@ export class AutodartsApi {
   }
 
   async createLobby(config = {}) {
+    const tournamentType = config.tournamentType === "Cricket" ? "Cricket" : "X01";
+    const matchMode = config.sets ? "Sets" : "Legs";
+
     const body = {
-      variant: "X01",
-      settings: {
-        baseScore: config.baseScore ?? 501,
-        inMode: config.inMode ?? "Straight",
-        outMode: config.outMode ?? "Double",
-        bullMode: config.bullMode ?? "25/50",
-        maxRounds: config.maxRounds ?? 50,
-      },
-      bullOffMode: config.bullOffMode ?? "Off",
+      variant: tournamentType,
+      settings:
+        tournamentType === "Cricket"
+          ? {
+              gameMode: "Cricket",
+              scoringMode: config.scoringMode ?? "Standard",
+              maxRounds: config.maxRounds ?? 50,
+            }
+          : {
+              baseScore: config.baseScore ?? 501,
+              inMode: config.inMode ?? "Straight",
+              outMode: config.outMode ?? "Double",
+              bullMode: config.bullMode ?? "25/50",
+              maxRounds: config.maxRounds ?? 50,
+            },
+      bullOffMode: config.bullOffMode ?? (tournamentType === "Cricket" ? "Off" : "Off"),
       isPrivate: true,
       legs: config.legs ?? 1,
     };
 
-    if(config.sets){
-      body.sets = config.sets
+    if (matchMode === "Sets" && config.sets) {
+      body.sets = config.sets;
     }
 
     return this.request(ENDPOINTS.lobbies, {

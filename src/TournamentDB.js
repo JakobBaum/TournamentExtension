@@ -51,6 +51,20 @@ const DEFAULT_PLAYER_STATS = {
   plus170Or180: 0,
 
   bestCheckout: 0,
+
+  totalMprSum: 0,
+  mprCount: 0,
+  mpr: 0,
+  totalFirst9MprSum: 0,
+  first9MprCount: 0,
+  first9MPR: 0,
+  mark5: 0,
+  mark6: 0,
+  mark7: 0,
+  mark8: 0,
+  mark9: 0,
+  whiteHorse: 0,
+  dartsThrown: 0,
 };
 
 export class TournamentDB {
@@ -76,23 +90,23 @@ export class TournamentDB {
   normalizePlayerStats(stats = {}) {
     return {
       average: Number(stats?.average || 0),
-
-      checkoutsHit: Number(
-        stats?.checkoutsHit ??
-        0
-      ),
-
-      checkoutsAttempted: Number(
-        stats?.checkouts ??
-        0
-      ),
-
+      checkoutsHit: Number(stats?.checkoutsHit ?? 0),
+      checkoutsAttempted: Number(stats?.checkouts ?? 0),
       plus60: Number(stats?.plus60 || 0),
       plus100: Number(stats?.plus100 || 0),
       plus140: Number(stats?.plus140 || 0),
       plus170: Number(stats?.plus170 || 0),
       total180: Number(stats?.total180 || 0),
       checkoutPoints: Number(stats?.checkoutPoints || 0),
+      mpr: Number(stats?.mpr || 0),
+      first9MPR: Number(stats?.first9MPR || stats?.first9Mpr || 0),
+      mark5: Number(stats?.mark5 || 0),
+      mark6: Number(stats?.mark6 || 0),
+      mark7: Number(stats?.mark7 || 0),
+      mark8: Number(stats?.mark8 || 0),
+      mark9: Number(stats?.mark9 || 0),
+      whiteHorse: Number(stats?.whiteHorse || 0),
+      dartsThrown: Number(stats?.dartsThrown || stats?.thrownDarts || stats?.totalDarts || 0),
     };
   }
 
@@ -106,6 +120,20 @@ export class TournamentDB {
     ];
 
     return possibleDartCounts.some((value) => Number(value || 0) > 0);
+  }
+
+  isCricketStats(stats = {}) {
+    return [
+      stats?.mpr,
+      stats?.first9MPR,
+      stats?.first9Mpr,
+      stats?.mark5,
+      stats?.mark6,
+      stats?.mark7,
+      stats?.mark8,
+      stats?.mark9,
+      stats?.whiteHorse,
+    ].some((value) => Number(value || 0) > 0);
   }
 
   extractScoreSummary(score) {
@@ -408,6 +436,20 @@ export class TournamentDB {
         if (hasThrownDarts) {
           target.totalAverageSum += normalizedStats.average || 0;
           target.averageCount += 1;
+          target.dartsThrown += normalizedStats.dartsThrown || 0;
+        }
+
+        if (this.isCricketStats(entry.stats)) {
+          target.totalMprSum += normalizedStats.mpr || 0;
+          target.mprCount += 1;
+          target.totalFirst9MprSum += normalizedStats.first9MPR || 0;
+          target.first9MprCount += 1;
+          target.mark5 += normalizedStats.mark5 || 0;
+          target.mark6 += normalizedStats.mark6 || 0;
+          target.mark7 += normalizedStats.mark7 || 0;
+          target.mark8 += normalizedStats.mark8 || 0;
+          target.mark9 += normalizedStats.mark9 || 0;
+          target.whiteHorse += normalizedStats.whiteHorse || 0;
         }
 
         target.plus60 += normalizedStats.plus60 || 0;
@@ -433,6 +475,10 @@ export class TournamentDB {
         stats.totalCheckouts > 0
           ? (stats.totalCheckoutsHit / stats.totalCheckouts) * 100
           : 0;
+
+      stats.mpr = stats.mprCount > 0 ? stats.totalMprSum / stats.mprCount : 0;
+      stats.first9MPR =
+        stats.first9MprCount > 0 ? stats.totalFirst9MprSum / stats.first9MprCount : 0;
     }
 
     return playerStatsMap;
@@ -476,6 +522,19 @@ export class TournamentDB {
           plus140: nextStats.plus140 || 0,
           plus170Or180: nextStats.plus170Or180 || 0,
           bestCheckout: nextStats.bestCheckout || 0,
+          totalMprSum: nextStats.totalMprSum || 0,
+          mprCount: nextStats.mprCount || 0,
+          mpr: nextStats.mpr || 0,
+          totalFirst9MprSum: nextStats.totalFirst9MprSum || 0,
+          first9MprCount: nextStats.first9MprCount || 0,
+          first9MPR: nextStats.first9MPR || 0,
+          mark5: nextStats.mark5 || 0,
+          mark6: nextStats.mark6 || 0,
+          mark7: nextStats.mark7 || 0,
+          mark8: nextStats.mark8 || 0,
+          mark9: nextStats.mark9 || 0,
+          whiteHorse: nextStats.whiteHorse || 0,
+          dartsThrown: nextStats.dartsThrown || 0,
           liveAverage: 0,
           lastStatsUpdateAt: new Date(),
         });

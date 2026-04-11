@@ -34,6 +34,19 @@ const QUALIFIER_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 16, 32];
 const LEGS_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 const SETS_OPTIONS = [2, 3, 4, 5, 6, 7];
 const LEGS_OF_SET_OPTIONS = [2, 3];
+const TOURNAMENT_TYPE_OPTIONS = ["X01", "Cricket"];
+const CRICKET_SCORING_OPTIONS = ["Standard", "Cut Throat", "No Score"];
+
+const DEFAULT_TOURNAMENT_TYPE = "X01";
+const DEFAULT_CRICKET_SETTINGS = {
+  scoringMode: "Standard",
+  maxRounds: 50,
+  bullOffMode: "Off",
+  matchMode: "Legs",
+  legs: 2,
+  sets: 3,
+  legsOfSet: 3,
+};
 /*
 const DEFAULT_PLAYERS = [
   "Anna",
@@ -103,6 +116,7 @@ const activeMatchWatchers = new Set();
 const cancelledMatchWatchers = new Set();
 const LAST_TOURNAMENT_STORAGE_KEY = "adTournamentLastTournamentId";
 const DEFAULT_MATCH_SETTINGS = {
+  tournamentType: DEFAULT_TOURNAMENT_TYPE,
   baseScore: 501,
   inMode: "Straight",
   outMode: "Double",
@@ -113,6 +127,7 @@ const DEFAULT_MATCH_SETTINGS = {
   legs: 3,
   sets: 3,
   legsOfSet: 3,
+  scoringMode: "Standard",
 };
 const DEFAULT_TOURNAMENT_FORMAT = {
   groupSize: 4,
@@ -126,7 +141,10 @@ const isRealPlayer = (player) => player && typeof player === "object" && player.
 const isBye = (player) => player && typeof player === "object" && player.type === "bye";
 
 function extractMatchSettings(settings = {}) {
+  const tournamentType = settings?.tournamentType || settings?.variant || DEFAULT_MATCH_SETTINGS.tournamentType;
+
   return {
+    tournamentType,
     baseScore: Number(settings?.baseScore) || DEFAULT_MATCH_SETTINGS.baseScore,
     inMode: settings?.inMode || DEFAULT_MATCH_SETTINGS.inMode,
     outMode: settings?.outMode || DEFAULT_MATCH_SETTINGS.outMode,
@@ -137,6 +155,7 @@ function extractMatchSettings(settings = {}) {
     legs: Number(settings?.legs) || DEFAULT_MATCH_SETTINGS.legs,
     sets: Number(settings?.sets) || DEFAULT_MATCH_SETTINGS.sets,
     legsOfSet: Number(settings?.legsOfSet) || DEFAULT_MATCH_SETTINGS.legsOfSet,
+    scoringMode: settings?.scoringMode || DEFAULT_MATCH_SETTINGS.scoringMode,
   };
 }
 
@@ -181,6 +200,7 @@ function buildTournamentSettingsPayload(
   const payload = {
     ...normalizedGlobal,
     ...normalizedFormat,
+    variant: normalizedGlobal.tournamentType,
     defaultMatchSettings: normalizedGlobal,
     tournamentFormat: normalizedFormat,
   };
@@ -197,6 +217,7 @@ function areMatchSettingsEqual(a = {}, b = {}) {
   const right = extractMatchSettings(b);
 
   return (
+    left.tournamentType === right.tournamentType &&
     left.baseScore === right.baseScore &&
     left.inMode === right.inMode &&
     left.outMode === right.outMode &&
@@ -206,7 +227,8 @@ function areMatchSettingsEqual(a = {}, b = {}) {
     left.matchMode === right.matchMode &&
     left.legs === right.legs &&
     left.sets === right.sets &&
-    left.legsOfSet === right.legsOfSet
+    left.legsOfSet === right.legsOfSet &&
+    left.scoringMode === right.scoringMode
   );
 }
 
@@ -272,6 +294,89 @@ function getMatchTitle(match, labelPrefix = "") {
 function formatStatValue(value, digits = 1) {
   const num = Number(value || 0);
   return Number.isFinite(num) ? num.toFixed(digits) : (0).toFixed(digits);
+}
+
+function isCricketSettings(settings = {}) {
+  return extractMatchSettings(settings).tournamentType === "Cricket";
+}
+
+function getTournamentTypeLabel(value) {
+  return value === "Cricket" ? "Cricket" : "X01";
+}
+
+function getFinalStatsColumns(tournamentType = DEFAULT_TOURNAMENT_TYPE) {
+  if (tournamentType === "Cricket") {
+    return [
+      { header: "Platz", key: "place", width: 8 },
+      { header: "Spieler", key: "name", width: 20 },
+      { header: "Siege", key: "wins", width: 10 },
+      { header: "Niederlagen", key: "losses", width: 12 },
+      { header: "Legs", key: "legs", width: 12 },
+      { header: "Sets", key: "sets", width: 12 },
+      { header: "MPR", key: "mpr", width: 10 },
+      { header: "First 9 MPR", key: "first9Mpr", width: 14 },
+      { header: "5 Mark", key: "mark5", width: 10 },
+      { header: "6 Mark", key: "mark6", width: 10 },
+      { header: "7 Mark", key: "mark7", width: 10 },
+      { header: "8 Mark", key: "mark8", width: 10 },
+      { header: "9 Mark", key: "mark9", width: 10 },
+      { header: "White Horse", key: "whiteHorse", width: 14 },
+      { header: "Darts", key: "dartsThrown", width: 10 },
+    ];
+  }
+
+  return [
+    { header: "Platz", key: "place", width: 8 },
+    { header: "Spieler", key: "name", width: 20 },
+    { header: "Siege", key: "wins", width: 10 },
+    { header: "Niederlagen", key: "losses", width: 12 },
+    { header: "Legs", key: "legs", width: 12 },
+    { header: "Sets", key: "sets", width: 12 },
+    { header: "Average", key: "avg", width: 10 },
+    { header: "Checkout %", key: "co", width: 12 },
+    { header: "60+", key: "p60", width: 8 },
+    { header: "100+", key: "p100", width: 8 },
+    { header: "140+", key: "p140", width: 8 },
+    { header: "170+/180", key: "p180", width: 12 },
+    { header: "Bestes Checkout", key: "best", width: 18 },
+  ];
+}
+
+function getFinalStatsRow(player, index, tournamentType = DEFAULT_TOURNAMENT_TYPE) {
+  const row = {
+    place: player.finalPlace ?? index + 1,
+    name: player.name,
+    wins: Number(player.wins || 0),
+    losses: Number(player.losses || 0),
+    legs: `${player.legsWon || 0}:${player.legsLost || 0}`,
+    sets: `${player.setsWon || 0}:${player.setsLost || 0}`,
+  };
+
+  if (tournamentType === "Cricket") {
+    return {
+      ...row,
+      mpr: formatStatValue(player.mpr, 2),
+      first9Mpr: formatStatValue(player.first9MPR, 2),
+      mark5: Number(player.mark5 || 0),
+      mark6: Number(player.mark6 || 0),
+      mark7: Number(player.mark7 || 0),
+      mark8: Number(player.mark8 || 0),
+      mark9: Number(player.mark9 || 0),
+      whiteHorse: Number(player.whiteHorse || 0),
+      dartsThrown: Number(player.dartsThrown || 0),
+    };
+  }
+
+  return {
+    ...row,
+    avg: formatStatValue(player.average, 1),
+    co: formatStatValue(player.checkoutPercent, 1),
+    p60: Number(player.plus60 || 0),
+    p100: Number(player.plus100 || 0),
+    p140: Number(player.plus140 || 0),
+    p180: Number(player.plus170Or180 || 0),
+    best: Number(player.bestCheckout || 0),
+  };
 }
 
 function extractFinalPlayerStatsFromAutodartsStats(stats) {
@@ -641,7 +746,10 @@ function sortPlayersForFinalTable(players = []) {
     const setsDiffB = Number(b.setsWon || 0) - Number(b.setsLost || 0);
     if (setsDiffB !== setsDiffA) return setsDiffB - setsDiffA;
 
-    return Number(b.average || 0) - Number(a.average || 0);
+    const x01Diff = Number(b.average || 0) - Number(a.average || 0);
+    if (x01Diff !== 0) return x01Diff;
+
+    return Number(b.mpr || 0) - Number(a.mpr || 0);
   });
 }
 
@@ -1231,43 +1339,15 @@ function buildFinalPlacements(matches = [], players = []) {
     });
 }
 
-function FinalStandingsTable({ matches, players, tournamentName }) {
+function FinalStandingsTable({ matches, players, tournamentName, tournamentType }) {
   async function exportToExcel() {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet("Ergebnisse");
 
-    worksheet.columns = [
-      { header: "Platz", key: "place", width: 8 },
-      { header: "Spieler", key: "name", width: 20 },
-      { header: "Siege", key: "wins", width: 10 },
-      { header: "Niederlagen", key: "losses", width: 12 },
-      { header: "Legs", key: "legs", width: 12 },
-      { header: "Sets", key: "sets", width: 12 },
-      { header: "Average", key: "avg", width: 10 },
-      { header: "Checkout %", key: "co", width: 12 },
-      { header: "60+", key: "p60", width: 8 },
-      { header: "100+", key: "p100", width: 8 },
-      { header: "140+", key: "p140", width: 8 },
-      { header: "171+/180", key: "p180", width: 12 },
-      { header: "Bestes Checkout", key: "best", width: 18 },
-    ];
+    worksheet.columns = getFinalStatsColumns(tournamentType);
 
     sortedPlayers.forEach((player, index) => {
-      worksheet.addRow({
-        place: player.finalPlace ?? index + 1,
-        name: player.name,
-        wins: player.wins || 0,
-        losses: player.losses || 0,
-        legs: `${player.legsWon || 0}:${player.legsLost || 0}`,
-        sets: `${player.setsWon || 0}:${player.setsLost || 0}`,
-        avg: Number(player.average || 0).toFixed(1),
-        co: Number(player.checkoutPercent || 0).toFixed(1),
-        p60: player.plus60 || 0,
-        p100: player.plus100 || 0,
-        p140: player.plus140 || 0,
-        p180: player.plus171Or180 || 0,
-        best: player.bestCheckout || 0,
-      });
+      worksheet.addRow(getFinalStatsRow(player, index, tournamentType));
     });
 
     const buffer = await workbook.xlsx.writeBuffer();
@@ -1329,22 +1409,8 @@ function FinalStandingsTable({ matches, players, tournamentName }) {
           <table className="final-standings-table">
             <thead>
               <tr>
-                {[
-                  "Platz",
-                  "Spieler",
-                  "Siege",
-                  "Niederlagen",
-                  "Legs",
-                  "Sets",
-                  "Average",
-                  "Checkout %",
-                  "60+",
-                  "100+",
-                  "140+",
-                  "170+/180",
-                  "Bestes Checkout",
-                ].map((head) => (
-                  <th key={head}>{head}</th>
+                {getFinalStatsColumns(tournamentType).map((column) => (
+                  <th key={column.key}>{column.header}</th>
                 ))}
               </tr>
             </thead>
@@ -1369,27 +1435,61 @@ function FinalStandingsTable({ matches, players, tournamentName }) {
                     <td className={cx("final-standings-stat", highlightClass)}>
                       {Number(player.setsWon || 0)} / {Number(player.setsLost || 0)}
                     </td>
-                    <td className={cx("final-standings-stat", highlightClass)}>
-                      {formatStatValue(player.average, 1)}
-                    </td>
-                    <td className={cx("final-standings-stat", highlightClass)}>
-                      {formatStatValue(player.checkoutPercent, 1)}%
-                    </td>
-                    <td className={cx("final-standings-stat", highlightClass)}>
-                      {Number(player.plus60 || 0)}
-                    </td>
-                    <td className={cx("final-standings-stat", highlightClass)}>
-                      {Number(player.plus100 || 0)}
-                    </td>
-                    <td className={cx("final-standings-stat", highlightClass)}>
-                      {Number(player.plus140 || 0)}
-                    </td>
-                    <td className={cx("final-standings-stat", highlightClass)}>
-                      {Number(player.plus170Or180 || 0)}
-                    </td>
-                    <td className={cx("final-standings-stat", highlightClass)}>
-                      {Number(player.bestCheckout || 0)}
-                    </td>
+                    {tournamentType === "Cricket" ? (
+                      <>
+                        <td className={cx("final-standings-stat", highlightClass)}>
+                          {formatStatValue(player.mpr, 2)}
+                        </td>
+                        <td className={cx("final-standings-stat", highlightClass)}>
+                          {formatStatValue(player.first9MPR, 2)}
+                        </td>
+                        <td className={cx("final-standings-stat", highlightClass)}>
+                          {Number(player.mark5 || 0)}
+                        </td>
+                        <td className={cx("final-standings-stat", highlightClass)}>
+                          {Number(player.mark6 || 0)}
+                        </td>
+                        <td className={cx("final-standings-stat", highlightClass)}>
+                          {Number(player.mark7 || 0)}
+                        </td>
+                        <td className={cx("final-standings-stat", highlightClass)}>
+                          {Number(player.mark8 || 0)}
+                        </td>
+                        <td className={cx("final-standings-stat", highlightClass)}>
+                          {Number(player.mark9 || 0)}
+                        </td>
+                        <td className={cx("final-standings-stat", highlightClass)}>
+                          {Number(player.whiteHorse || 0)}
+                        </td>
+                        <td className={cx("final-standings-stat", highlightClass)}>
+                          {Number(player.dartsThrown || 0)}
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className={cx("final-standings-stat", highlightClass)}>
+                          {formatStatValue(player.average, 1)}
+                        </td>
+                        <td className={cx("final-standings-stat", highlightClass)}>
+                          {formatStatValue(player.checkoutPercent, 1)}%
+                        </td>
+                        <td className={cx("final-standings-stat", highlightClass)}>
+                          {Number(player.plus60 || 0)}
+                        </td>
+                        <td className={cx("final-standings-stat", highlightClass)}>
+                          {Number(player.plus100 || 0)}
+                        </td>
+                        <td className={cx("final-standings-stat", highlightClass)}>
+                          {Number(player.plus140 || 0)}
+                        </td>
+                        <td className={cx("final-standings-stat", highlightClass)}>
+                          {Number(player.plus170Or180 || 0)}
+                        </td>
+                        <td className={cx("final-standings-stat", highlightClass)}>
+                          {Number(player.bestCheckout || 0)}
+                        </td>
+                      </>
+                    )}
                   </tr>
                 );
               })}
@@ -1406,6 +1506,7 @@ function TournamentTree({
   groups,
   mode,
   matchMode,
+  tournamentType,
   qualifiedPerGroup,
   onStartMatch,
   onGiveUpMatch,
@@ -1584,12 +1685,14 @@ function TournamentTree({
 export default function TournamentApp() {
   const [tournamentName, setTournamentName] = useState("Mein Turnier");
   const [mode, setMode] = useState("KO");
+  const [tournamentType, setTournamentType] = useState(DEFAULT_TOURNAMENT_TYPE);
   const [baseScore, setBaseScore] = useState(501);
   const [inMode, setInMode] = useState("Straight");
   const [outMode, setOutMode] = useState("Double");
   const [maxRounds, setMaxRounds] = useState(50);
   const [bullMode, setBullMode] = useState("25/50");
   const [bullOffMode, setBullOffMode] = useState("Normal");
+  const [scoringMode, setScoringMode] = useState("Standard");
   const [matchMode, setMatchMode] = useState("Legs");
   const [legs, setLegs] = useState(3);
   const [sets, setSets] = useState(3);
@@ -1634,24 +1737,28 @@ export default function TournamentApp() {
 
   const currentSettings = useMemo(
     () => ({
+      tournamentType,
       baseScore,
       inMode,
       outMode,
       maxRounds,
       bullMode,
       bullOffMode,
+      scoringMode,
       matchMode,
       legs,
       sets,
       legsOfSet,
     }),
     [
+      tournamentType,
       baseScore,
       inMode,
       outMode,
       maxRounds,
       bullMode,
       bullOffMode,
+      scoringMode,
       matchMode,
       legs,
       sets,
@@ -1700,12 +1807,14 @@ export default function TournamentApp() {
     const globalSettings = normalizedSettings.global;
     const formatSettings = normalizedSettings.format;
 
+    setTournamentType(globalSettings.tournamentType || DEFAULT_TOURNAMENT_TYPE);
     setBaseScore(globalSettings.baseScore);
     setInMode(globalSettings.inMode);
     setOutMode(globalSettings.outMode);
     setMaxRounds(globalSettings.maxRounds);
     setBullMode(globalSettings.bullMode);
     setBullOffMode(globalSettings.bullOffMode);
+    setScoringMode(globalSettings.scoringMode || DEFAULT_MATCH_SETTINGS.scoringMode);
     setMatchMode(globalSettings.matchMode);
     setLegs(globalSettings.legs);
     setSets(globalSettings.sets);
@@ -2086,11 +2195,13 @@ export default function TournamentApp() {
       );
 
       const lobby = await autodartsApi.createLobby({
+        tournamentType: effectiveSettings.tournamentType,
         baseScore: effectiveSettings.baseScore,
         inMode: effectiveSettings.inMode,
         outMode: effectiveSettings.outMode,
         bullMode: effectiveSettings.bullMode,
         bullOffMode: effectiveSettings.bullOffMode,
+        scoringMode: effectiveSettings.scoringMode,
         maxRounds: effectiveSettings.maxRounds,
         legs:
           effectiveSettings.matchMode === "Legs"
@@ -2453,6 +2564,31 @@ export default function TournamentApp() {
                   </div>
 
                   <div className="field">
+                    <label>Turniertyp</label>
+                    <select
+                      value={tournamentType}
+                      onChange={(e) => {
+                        const nextType = e.target.value;
+                        setTournamentType(nextType);
+                        if (nextType === "Cricket") {
+                          setBullOffMode(DEFAULT_CRICKET_SETTINGS.bullOffMode);
+                          setMaxRounds(DEFAULT_CRICKET_SETTINGS.maxRounds);
+                          setLegs(DEFAULT_CRICKET_SETTINGS.legs);
+                          setScoringMode(DEFAULT_CRICKET_SETTINGS.scoringMode);
+                        } else {
+                          setBullOffMode(DEFAULT_MATCH_SETTINGS.bullOffMode);
+                        }
+                      }}
+                    >
+                      {TOURNAMENT_TYPE_OPTIONS.map((option) => (
+                        <option key={option} value={option}>
+                          {getTournamentTypeLabel(option)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="field">
                     <label>Platzierungsspiele</label>
                     <select
                       value={playAllPlaces ? "all" : "top_only"}
@@ -2468,77 +2604,110 @@ export default function TournamentApp() {
               <div className="config-card">
                 <div className="config-card-title">Spiel-Einstellungen</div>
                 <div className="grid">
-                  <div className="field">
-                    <label>Startscore</label>
-                    <select
-                      value={baseScore}
-                      onChange={(e) => setBaseScore(Number(e.target.value))}
-                    >
-                      {SCORE_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  {tournamentType === "Cricket" ? (
+                    <>
+                      <div className="field">
+                        <label>Scoring</label>
+                        <select value={scoringMode} onChange={(e) => setScoringMode(e.target.value)}>
+                          {CRICKET_SCORING_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                  <div className="field">
-                    <label>In</label>
-                    <select value={inMode} onChange={(e) => setInMode(e.target.value)}>
-                      {MODE_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                      <div className="field">
+                        <label>Maximale Runden</label>
+                        <select value={maxRounds} onChange={(e) => setMaxRounds(Number(e.target.value))}>
+                          {MAX_ROUNDS_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                  <div className="field">
-                    <label>Out</label>
-                    <select value={outMode} onChange={(e) => setOutMode(e.target.value)}>
-                      {MODE_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                      <div className="field">
+                        <label>Bull-Off</label>
+                        <select value={bullOffMode} onChange={(e) => setBullOffMode(e.target.value)}>
+                          {BULL_OFF_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="field">
+                        <label>Startscore</label>
+                        <select value={baseScore} onChange={(e) => setBaseScore(Number(e.target.value))}>
+                          {SCORE_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                  <div className="field">
-                    <label>Maximale Runden</label>
-                    <select
-                      value={maxRounds}
-                      onChange={(e) => setMaxRounds(Number(e.target.value))}
-                    >
-                      {MAX_ROUNDS_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                      <div className="field">
+                        <label>In</label>
+                        <select value={inMode} onChange={(e) => setInMode(e.target.value)}>
+                          {MODE_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                  <div className="field">
-                    <label>Bull-Modus</label>
-                    <select value={bullMode} onChange={(e) => setBullMode(e.target.value)}>
-                      {BULL_MODE_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                      <div className="field">
+                        <label>Out</label>
+                        <select value={outMode} onChange={(e) => setOutMode(e.target.value)}>
+                          {MODE_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                  <div className="field">
-                    <label>Bull-Off</label>
-                    <select value={bullOffMode} onChange={(e) => setBullOffMode(e.target.value)}>
-                      {BULL_OFF_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                      <div className="field">
+                        <label>Maximale Runden</label>
+                        <select value={maxRounds} onChange={(e) => setMaxRounds(Number(e.target.value))}>
+                          {MAX_ROUNDS_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="field">
+                        <label>Bull-Modus</label>
+                        <select value={bullMode} onChange={(e) => setBullMode(e.target.value)}>
+                          {BULL_MODE_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="field">
+                        <label>Bull-Off</label>
+                        <select value={bullOffMode} onChange={(e) => setBullOffMode(e.target.value)}>
+                          {BULL_OFF_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </>
+                  )}
 
                   <div className="field">
                     <label>Match-Modus</label>
@@ -2576,11 +2745,8 @@ export default function TournamentApp() {
                       </div>
 
                       <div className="field">
-                        <label>First to Legs(per Set)</label>
-                        <select
-                          value={legsOfSet}
-                          onChange={(e) => setLegsOfSet(Number(e.target.value))}
-                        >
+                        <label>Legs pro Set</label>
+                        <select value={legsOfSet} onChange={(e) => setLegsOfSet(Number(e.target.value))}>
                           {LEGS_OF_SET_OPTIONS.map((option) => (
                             <option key={option} value={option}>
                               {option}
@@ -2752,7 +2918,7 @@ export default function TournamentApp() {
                 {tournamentCode && <span className="code-badge">Code: {tournamentCode}</span>}
               </h2>
               <div className="bracket-subtitle">
-                {mode === "KO" ? "KO-Turnier" : "Gruppenphase mit KO-Finalrunde"}
+                {`${getTournamentTypeLabel(tournamentType)} · ${mode === "KO" ? "KO-Turnier" : "Gruppenphase mit KO-Finalrunde"}`}
               </div>
             </div>
 
@@ -2791,12 +2957,14 @@ export default function TournamentApp() {
           roundSettings={roundSettingsMap}
           onOpenRoundSettings={openRoundSettingsDialog}
           onOpenGlobalSettings={() => setShowSettingsDialog(true)}
+          tournamentType={tournamentType}
         />
 
         <FinalStandingsTable
           matches={matches}
           players={playerDocs}
           tournamentName={tournamentName}
+          tournamentType={tournamentType}
         />
       </div>
     </div>
@@ -2834,77 +3002,110 @@ export default function TournamentApp() {
               <div className="config-card">
                 <div className="config-card-title">Spiel-Einstellungen</div>
                 <div className="grid">
-                  <div className="field">
-                    <label>Startscore</label>
-                    <select
-                      value={baseScore}
-                      onChange={(e) => setBaseScore(Number(e.target.value))}
-                    >
-                      {SCORE_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  {tournamentType === "Cricket" ? (
+                    <>
+                      <div className="field">
+                        <label>Scoring</label>
+                        <select value={scoringMode} onChange={(e) => setScoringMode(e.target.value)}>
+                          {CRICKET_SCORING_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                  <div className="field">
-                    <label>In</label>
-                    <select value={inMode} onChange={(e) => setInMode(e.target.value)}>
-                      {MODE_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                      <div className="field">
+                        <label>Maximale Runden</label>
+                        <select value={maxRounds} onChange={(e) => setMaxRounds(Number(e.target.value))}>
+                          {MAX_ROUNDS_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                  <div className="field">
-                    <label>Out</label>
-                    <select value={outMode} onChange={(e) => setOutMode(e.target.value)}>
-                      {MODE_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                      <div className="field">
+                        <label>Bull-Off</label>
+                        <select value={bullOffMode} onChange={(e) => setBullOffMode(e.target.value)}>
+                          {BULL_OFF_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="field">
+                        <label>Startscore</label>
+                        <select value={baseScore} onChange={(e) => setBaseScore(Number(e.target.value))}>
+                          {SCORE_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                  <div className="field">
-                    <label>Maximale Runden</label>
-                    <select
-                      value={maxRounds}
-                      onChange={(e) => setMaxRounds(Number(e.target.value))}
-                    >
-                      {MAX_ROUNDS_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                      <div className="field">
+                        <label>In</label>
+                        <select value={inMode} onChange={(e) => setInMode(e.target.value)}>
+                          {MODE_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                  <div className="field">
-                    <label>Bull-Modus</label>
-                    <select value={bullMode} onChange={(e) => setBullMode(e.target.value)}>
-                      {BULL_MODE_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                      <div className="field">
+                        <label>Out</label>
+                        <select value={outMode} onChange={(e) => setOutMode(e.target.value)}>
+                          {MODE_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                  <div className="field">
-                    <label>Bull-Off</label>
-                    <select value={bullOffMode} onChange={(e) => setBullOffMode(e.target.value)}>
-                      {BULL_OFF_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                      <div className="field">
+                        <label>Maximale Runden</label>
+                        <select value={maxRounds} onChange={(e) => setMaxRounds(Number(e.target.value))}>
+                          {MAX_ROUNDS_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="field">
+                        <label>Bull-Modus</label>
+                        <select value={bullMode} onChange={(e) => setBullMode(e.target.value)}>
+                          {BULL_MODE_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="field">
+                        <label>Bull-Off</label>
+                        <select value={bullOffMode} onChange={(e) => setBullOffMode(e.target.value)}>
+                          {BULL_OFF_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </>
+                  )}
 
                   <div className="field">
                     <label>Match-Modus</label>
@@ -2943,10 +3144,7 @@ export default function TournamentApp() {
 
                       <div className="field">
                         <label>Legs pro Set</label>
-                        <select
-                          value={legsOfSet}
-                          onChange={(e) => setLegsOfSet(Number(e.target.value))}
-                        >
+                        <select value={legsOfSet} onChange={(e) => setLegsOfSet(Number(e.target.value))}>
                           {LEGS_OF_SET_OPTIONS.map((option) => (
                             <option key={option} value={option}>
                               {option}
@@ -2993,107 +3191,155 @@ export default function TournamentApp() {
                   Spiel-Einstellungen für Runde {selectedRoundNumber}
                 </div>
                 <div className="grid">
-                  <div className="field">
-                    <label>Startscore</label>
-                    <select
-                      value={roundSettingsDraft.baseScore}
-                      onChange={(e) =>
-                        setRoundSettingsDraft((prev) => ({
-                          ...prev,
-                          baseScore: Number(e.target.value),
-                        }))
-                      }
-                    >
-                      {SCORE_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  {roundSettingsDraft.tournamentType === "Cricket" ? (
+                    <>
+                      <div className="field">
+                        <label>Scoring</label>
+                        <select
+                          value={roundSettingsDraft.scoringMode}
+                          onChange={(e) =>
+                            setRoundSettingsDraft((prev) => ({ ...prev, scoringMode: e.target.value }))
+                          }
+                        >
+                          {CRICKET_SCORING_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                  <div className="field">
-                    <label>In</label>
-                    <select
-                      value={roundSettingsDraft.inMode}
-                      onChange={(e) =>
-                        setRoundSettingsDraft((prev) => ({ ...prev, inMode: e.target.value }))
-                      }
-                    >
-                      {MODE_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                      <div className="field">
+                        <label>Maximale Runden</label>
+                        <select
+                          value={roundSettingsDraft.maxRounds}
+                          onChange={(e) =>
+                            setRoundSettingsDraft((prev) => ({ ...prev, maxRounds: Number(e.target.value) }))
+                          }
+                        >
+                          {MAX_ROUNDS_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                  <div className="field">
-                    <label>Out</label>
-                    <select
-                      value={roundSettingsDraft.outMode}
-                      onChange={(e) =>
-                        setRoundSettingsDraft((prev) => ({ ...prev, outMode: e.target.value }))
-                      }
-                    >
-                      {MODE_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                      <div className="field">
+                        <label>Bull-Off</label>
+                        <select
+                          value={roundSettingsDraft.bullOffMode}
+                          onChange={(e) =>
+                            setRoundSettingsDraft((prev) => ({ ...prev, bullOffMode: e.target.value }))
+                          }
+                        >
+                          {BULL_OFF_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="field">
+                        <label>Startscore</label>
+                        <select
+                          value={roundSettingsDraft.baseScore}
+                          onChange={(e) =>
+                            setRoundSettingsDraft((prev) => ({ ...prev, baseScore: Number(e.target.value) }))
+                          }
+                        >
+                          {SCORE_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                  <div className="field">
-                    <label>Maximale Runden</label>
-                    <select
-                      value={roundSettingsDraft.maxRounds}
-                      onChange={(e) =>
-                        setRoundSettingsDraft((prev) => ({
-                          ...prev,
-                          maxRounds: Number(e.target.value),
-                        }))
-                      }
-                    >
-                      {MAX_ROUNDS_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                      <div className="field">
+                        <label>In</label>
+                        <select
+                          value={roundSettingsDraft.inMode}
+                          onChange={(e) =>
+                            setRoundSettingsDraft((prev) => ({ ...prev, inMode: e.target.value }))
+                          }
+                        >
+                          {MODE_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                  <div className="field">
-                    <label>Bull-Modus</label>
-                    <select
-                      value={roundSettingsDraft.bullMode}
-                      onChange={(e) =>
-                        setRoundSettingsDraft((prev) => ({ ...prev, bullMode: e.target.value }))
-                      }
-                    >
-                      {BULL_MODE_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                      <div className="field">
+                        <label>Out</label>
+                        <select
+                          value={roundSettingsDraft.outMode}
+                          onChange={(e) =>
+                            setRoundSettingsDraft((prev) => ({ ...prev, outMode: e.target.value }))
+                          }
+                        >
+                          {MODE_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-                  <div className="field">
-                    <label>Bull-Off</label>
-                    <select
-                      value={roundSettingsDraft.bullOffMode}
-                      onChange={(e) =>
-                        setRoundSettingsDraft((prev) => ({ ...prev, bullOffMode: e.target.value }))
-                      }
-                    >
-                      {BULL_OFF_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                      <div className="field">
+                        <label>Maximale Runden</label>
+                        <select
+                          value={roundSettingsDraft.maxRounds}
+                          onChange={(e) =>
+                            setRoundSettingsDraft((prev) => ({ ...prev, maxRounds: Number(e.target.value) }))
+                          }
+                        >
+                          {MAX_ROUNDS_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="field">
+                        <label>Bull-Modus</label>
+                        <select
+                          value={roundSettingsDraft.bullMode}
+                          onChange={(e) =>
+                            setRoundSettingsDraft((prev) => ({ ...prev, bullMode: e.target.value }))
+                          }
+                        >
+                          {BULL_MODE_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="field">
+                        <label>Bull-Off</label>
+                        <select
+                          value={roundSettingsDraft.bullOffMode}
+                          onChange={(e) =>
+                            setRoundSettingsDraft((prev) => ({ ...prev, bullOffMode: e.target.value }))
+                          }
+                        >
+                          {BULL_OFF_OPTIONS.map((option) => (
+                            <option key={option} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </>
+                  )}
 
                   <div className="field">
                     <label>Match-Modus</label>
@@ -3117,10 +3363,7 @@ export default function TournamentApp() {
                       <select
                         value={roundSettingsDraft.legs}
                         onChange={(e) =>
-                          setRoundSettingsDraft((prev) => ({
-                            ...prev,
-                            legs: Number(e.target.value),
-                          }))
+                          setRoundSettingsDraft((prev) => ({ ...prev, legs: Number(e.target.value) }))
                         }
                       >
                         {LEGS_OPTIONS.map((option) => (
@@ -3137,10 +3380,7 @@ export default function TournamentApp() {
                         <select
                           value={roundSettingsDraft.sets}
                           onChange={(e) =>
-                            setRoundSettingsDraft((prev) => ({
-                              ...prev,
-                              sets: Number(e.target.value),
-                            }))
+                            setRoundSettingsDraft((prev) => ({ ...prev, sets: Number(e.target.value) }))
                           }
                         >
                           {SETS_OPTIONS.map((option) => (
@@ -3156,10 +3396,7 @@ export default function TournamentApp() {
                         <select
                           value={roundSettingsDraft.legsOfSet}
                           onChange={(e) =>
-                            setRoundSettingsDraft((prev) => ({
-                              ...prev,
-                              legsOfSet: Number(e.target.value),
-                            }))
+                            setRoundSettingsDraft((prev) => ({ ...prev, legsOfSet: Number(e.target.value) }))
                           }
                         >
                           {LEGS_OF_SET_OPTIONS.map((option) => (
