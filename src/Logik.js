@@ -339,53 +339,160 @@ export class Logik {
     };
   }
   distributeSlotsAvoidingDoubleByes(entries = []) {
-  const realPlayers = this.shuffleArray(
-    entries.filter((entry) => entry?.type !== "bye")
-  );
-  const byes = entries.filter((entry) => entry?.type === "bye");
+    const realPlayers = this.shuffleArray(entries.filter((entry) => entry?.type !== "bye"));
+    const byes = entries.filter((entry) => entry?.type === "bye");
 
-  if (byes.length === 0) return realPlayers;
-  if (realPlayers.length === 0) return byes;
+    if (byes.length === 0) return realPlayers;
+    if (realPlayers.length === 0) return byes;
 
-  const totalSlots = realPlayers.length + byes.length;
-  const result = new Array(totalSlots).fill(null);
+    const totalSlots = realPlayers.length + byes.length;
+    const result = new Array(totalSlots).fill(null);
 
-  let playerIndex = 0;
-  for (let i = 0; i < totalSlots; i += 2) {
-    if (playerIndex < realPlayers.length) {
-      result[i] = realPlayers[playerIndex++];
+    let playerIndex = 0;
+    for (let i = 0; i < totalSlots; i += 2) {
+      if (playerIndex < realPlayers.length) {
+        result[i] = realPlayers[playerIndex++];
+      }
     }
+
+    for (let i = 1; i < totalSlots; i += 2) {
+      if (playerIndex < realPlayers.length) {
+        result[i] = realPlayers[playerIndex++];
+      }
+    }
+
+    let byeIndex = 0;
+    for (let i = 0; i < totalSlots && byeIndex < byes.length; i++) {
+      if (result[i]) continue;
+
+      const left = i > 0 ? result[i - 1] : null;
+      const right = i < totalSlots - 1 ? result[i + 1] : null;
+
+      const leftIsBye = left?.type === "bye";
+      const rightIsBye = right?.type === "bye";
+
+      if (!leftIsBye && !rightIsBye) {
+        result[i] = byes[byeIndex++];
+      }
+    }
+
+    for (let i = 0; i < totalSlots && byeIndex < byes.length; i++) {
+      if (!result[i]) {
+        result[i] = byes[byeIndex++];
+      }
+    }
+
+    return result;
   }
 
-  for (let i = 1; i < totalSlots; i += 2) {
-    if (playerIndex < realPlayers.length) {
-      result[i] = realPlayers[playerIndex++];
+  parseQualifierRef(ref = "") {
+    const match = String(ref || "").match(/^G([A-Z]+)-(\d+)$/i);
+    if (!match) {
+      return {
+        groupLetter: null,
+        rank: Number.MAX_SAFE_INTEGER,
+      };
     }
+
+    return {
+      groupLetter: String(match[1] || "").toUpperCase(),
+      rank: Number(match[2] || 0),
+    };
   }
 
-  let byeIndex = 0;
-  for (let i = 0; i < totalSlots && byeIndex < byes.length; i++) {
-    if (result[i]) continue;
+  buildGroupKoSlots(groups = [], qualifiedPerGroup = 2) {
+    const qualifiers = [];
 
-    const left = i > 0 ? result[i - 1] : null;
-    const right = i < totalSlots - 1 ? result[i + 1] : null;
+    for (let g = 0; g < groups.length; g++) {
+      const groupLetter = String.fromCharCode(65 + g);
+      const playerCountInGroup = groups[g]?.players?.length || 0;
+      const actualQualifiers = Math.min(qualifiedPerGroup, playerCountInGroup);
 
-    const leftIsBye = left?.type === "bye";
-    const rightIsBye = right?.type === "bye";
-
-    if (!leftIsBye && !rightIsBye) {
-      result[i] = byes[byeIndex++];
+      for (let q = 1; q <= actualQualifiers; q++) {
+        qualifiers.push({
+          ...this.parseQualifierRef(`G${groupLetter}-${q}`),
+          slot: this.createQualifierRef(`G${groupLetter}-${q}`),
+        });
+      }
     }
-  }
 
-  for (let i = 0; i < totalSlots && byeIndex < byes.length; i++) {
-    if (!result[i]) {
-      result[i] = byes[byeIndex++];
+    if (qualifiers.length < 2) {
+      return qualifiers.map((entry) => entry.slot);
     }
-  }
 
-  return result;
-}
+    qualifiers.sort((a, b) => {
+      if (a.rank !== b.rank) return a.rank - b.rank;
+      return String(a.groupLetter || "").localeCompare(String(b.groupLetter || ""), "de");
+    });
+
+    const bracketSize = this.nextPowerOfTwo(qualifiers.length);
+    const byeCount = bracketSize - qualifiers.length;
+    const byeSeeds = qualifiers.slice(0, byeCount);
+    const remaining = qualifiers.slice(byeCount);
+    const playedPairs = [];
+
+    while (remaining.length > 0) {
+      const first = remaining.shift();
+      if (!first) break;
+
+      if (remaining.length === 0) {
+        playedPairs.push([first.slot, this.createBye()]);
+        break;
+      }
+
+      const findLastMatchingIndex = (predicate) => {
+        for (let i = remaining.length - 1; i >= 0; i--) {
+          if (predicate(remaining[i])) return i;
+        }
+        return -1;
+      };
+
+      let opponentIndex = findLastMatchingIndex(
+        (entry) => entry.groupLetter !== first.groupLetter && entry.rank !== first.rank,
+      );
+
+      if (opponentIndex === -1) {
+        opponentIndex = findLastMatchingIndex((entry) => entry.groupLetter !== first.groupLetter);
+      }
+
+      if (opponentIndex === -1) {
+        opponentIndex = findLastMatchingIndex((entry) => entry.rank !== first.rank);
+      }
+
+      if (opponentIndex === -1) {
+        opponentIndex = remaining.length - 1;
+      }
+
+      const opponent = remaining.splice(opponentIndex, 1)[0];
+      playedPairs.push([first.slot, opponent.slot]);
+    }
+
+    const byePairs = byeSeeds.map((entry) => [entry.slot, this.createBye()]);
+    const totalPairs = bracketSize / 2;
+    const orderedPairs = [];
+    let byePairIndex = 0;
+    let playedPairIndex = 0;
+
+    while (orderedPairs.length < totalPairs) {
+      if (byePairIndex < byePairs.length) {
+        orderedPairs.push(byePairs[byePairIndex++]);
+      }
+
+      if (orderedPairs.length >= totalPairs) break;
+
+      if (playedPairIndex < playedPairs.length) {
+        orderedPairs.push(playedPairs[playedPairIndex++]);
+      } else if (byePairIndex < byePairs.length) {
+        orderedPairs.push(byePairs[byePairIndex++]);
+      }
+    }
+
+    while (orderedPairs.length < totalPairs) {
+      orderedPairs.push([this.createBye(), this.createBye()]);
+    }
+
+    return orderedPairs.flat();
+  }
 
   generateTournament(players, playersPerGroup = 4, qualifiedPerGroup = 2, options = {}) {
     if (!Array.isArray(players) || players.length < 2) {
@@ -439,17 +546,7 @@ export class Logik {
       }
     }
 
-    const qualifierRefs = [];
-
-    for (let g = 0; g < groups.length; g++) {
-      const groupLetter = String.fromCharCode(65 + g);
-      const playerCountInGroup = groups[g].players.length;
-      const actualQualifiers = Math.min(qualifiedPerGroup, playerCountInGroup);
-
-      for (let q = 1; q <= actualQualifiers; q++) {
-        qualifierRefs.push(this.createQualifierRef(`G${groupLetter}-${q}`));
-      }
-    }
+    const qualifierRefs = this.buildGroupKoSlots(groups, qualifiedPerGroup);
 
     if (qualifierRefs.length < 2) {
       return {
@@ -459,11 +556,7 @@ export class Logik {
       };
     }
 
-    const bracketSize = this.nextPowerOfTwo(qualifierRefs.length);
-    const koSlots = this.distributeSlotsAvoidingDoubleByes([
-  ...qualifierRefs,
-  ...Array.from({ length: bracketSize - qualifierRefs.length }, () => this.createBye()),
-]);
+    const koSlots = qualifierRefs;
 
     const bracket = this.buildMainBracket(koSlots, {
       startRound: 2,

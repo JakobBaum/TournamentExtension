@@ -30,7 +30,7 @@ const BULL_MODE_OPTIONS = ["25/50", "50/50"];
 const BULL_OFF_OPTIONS = ["Off", "Normal", "Official"];
 const MATCH_MODE_OPTIONS = ["Legs", "Sets"];
 const GROUP_SIZE_OPTIONS = [3, 4, 5, 6, 8, 10, 12, 24, 32];
-const QUALIFIER_OPTIONS = [1, 2, 4, 8, 16, 32];
+const QUALIFIER_OPTIONS = [1, 2,3, 4,5,6,7, 8, 16, 32];
 const LEGS_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 const SETS_OPTIONS = [2, 3, 4, 5, 6, 7];
 const LEGS_OF_SET_OPTIONS = [1, 3, 5];
@@ -174,13 +174,46 @@ function buildTournamentSettingsPayload(globalSettings = {}, formatSettings = {}
   const normalizedFormat = extractTournamentFormatSettings(formatSettings);
   const normalizedRoundSettings = normalizeRoundSettings(roundSettings);
 
-  return {
+  const payload = {
     ...normalizedGlobal,
     ...normalizedFormat,
     defaultMatchSettings: normalizedGlobal,
     tournamentFormat: normalizedFormat,
-    roundSettings: normalizedRoundSettings,
   };
+
+  if (Object.keys(normalizedRoundSettings).length > 0) {
+    payload.roundSettings = normalizedRoundSettings;
+  }
+
+  return payload;
+}
+
+function areMatchSettingsEqual(a = {}, b = {}) {
+  const left = extractMatchSettings(a);
+  const right = extractMatchSettings(b);
+
+  return (
+    left.baseScore === right.baseScore &&
+    left.inMode === right.inMode &&
+    left.outMode === right.outMode &&
+    left.maxRounds === right.maxRounds &&
+    left.bullMode === right.bullMode &&
+    left.bullOffMode === right.bullOffMode &&
+    left.matchMode === right.matchMode &&
+    left.legs === right.legs &&
+    left.sets === right.sets &&
+    left.legsOfSet === right.legsOfSet
+  );
+}
+
+function pruneRoundSettings(roundSettings = {}, globalSettings = {}) {
+  const normalizedGlobal = extractMatchSettings(globalSettings);
+
+  return Object.fromEntries(
+    Object.entries(normalizeRoundSettings(roundSettings)).filter(([, value]) => {
+      return !areMatchSettingsEqual(value, normalizedGlobal);
+    }),
+  );
 }
 
 function getEffectiveMatchSettings(match, globalSettings, roundSettings = {}) {
@@ -1517,7 +1550,11 @@ export default function TournamentApp() {
   );
 
   const tournamentSettingsPayload = useMemo(
-    () => buildTournamentSettingsPayload(currentSettings, tournamentFormatSettings, roundSettingsMap),
+    () => buildTournamentSettingsPayload(
+      currentSettings,
+      tournamentFormatSettings,
+      pruneRoundSettings(roundSettingsMap, currentSettings),
+    ),
     [currentSettings, tournamentFormatSettings, roundSettingsMap],
   );
 
@@ -1606,10 +1643,13 @@ export default function TournamentApp() {
     try {
       if (!tournamentId || selectedRoundNumber == null) return;
 
-      const nextRoundSettings = {
-        ...roundSettingsMap,
-        [String(selectedRoundNumber)]: extractMatchSettings(roundSettingsDraft),
-      };
+      const nextRoundSettings = pruneRoundSettings(
+        {
+          ...roundSettingsMap,
+          [String(selectedRoundNumber)]: extractMatchSettings(roundSettingsDraft),
+        },
+        currentSettings,
+      );
 
       await db.updateTournamentSetup(tournamentId, {
         name: tournamentName,
