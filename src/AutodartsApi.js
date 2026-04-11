@@ -223,6 +223,10 @@ export class AutodartsApi {
       legs: config.legs ?? 1,
     };
 
+    if(config.sets){
+      body.sets = config.sets
+    }
+
     return this.request(ENDPOINTS.lobbies, {
       method: "POST",
       headers: {

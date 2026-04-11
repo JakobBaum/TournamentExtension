@@ -48,7 +48,7 @@ const DEFAULT_PLAYER_STATS = {
   plus60: 0,
   plus100: 0,
   plus140: 0,
-  plus171Or180: 0,
+  plus170Or180: 0,
 
   bestCheckout: 0,
 };
@@ -308,7 +308,7 @@ export class TournamentDB {
     return null;
   }
 
-  clearMatchResultFields() {
+  clearMatchResultFields(preserveStats = false) {
     return {
       winner: null,
       loser: null,
@@ -317,8 +317,12 @@ export class TournamentDB {
       finishedAt: null,
       scorePlayer1: null,
       scorePlayer2: null,
-      finalPlayerStats: null,
-      statsUpdatedAt: null,
+      ...(preserveStats
+      ? {}
+      : {
+          finalPlayerStats: null,
+          statsUpdatedAt: null,
+        }),
       resultSource: null,
       manuallyCorrectedAt: null,
       lobbyId: null,
@@ -409,7 +413,7 @@ export class TournamentDB {
         target.plus60 += normalizedStats.plus60 || 0;
         target.plus100 += normalizedStats.plus100 || 0;
         target.plus140 += normalizedStats.plus140 || 0;
-        target.plus171Or180 += (normalizedStats.plus170 || 0) + (normalizedStats.total180 || 0);
+        target.plus170Or180 += (normalizedStats.plus170 || 0) + (normalizedStats.total180 || 0);
 
         target.totalCheckoutsHit += normalizedStats.checkoutsHit || 0;
         target.totalCheckouts += normalizedStats.checkoutsAttempted || 0;
@@ -470,7 +474,7 @@ export class TournamentDB {
           plus60: nextStats.plus60 || 0,
           plus100: nextStats.plus100 || 0,
           plus140: nextStats.plus140 || 0,
-          plus171Or180: nextStats.plus171Or180 || 0,
+          plus170Or180: nextStats.plus170Or180 || 0,
           bestCheckout: nextStats.bestCheckout || 0,
           liveAverage: 0,
           lastStatsUpdateAt: new Date(),
@@ -715,7 +719,7 @@ export class TournamentDB {
     }
   }
 
-  async resetMatchAndDescendants(tournamentId, matchId) {
+  async resetMatchAndDescendants(tournamentId, matchId,preserveStats=false) {
     if (!tournamentId || !matchId) return;
 
     const matches = await this.getMatchesByTournamentId(tournamentId);
@@ -723,7 +727,7 @@ export class TournamentDB {
     if (!match) return;
 
     await updateDoc(this.tDoc(tournamentId, "matches", matchId), {
-      ...this.clearMatchResultFields(),
+      ...this.clearMatchResultFields(preserveStats),
     });
 
     await this.resetMatchChainFromMatchNumber(tournamentId, match.matchNumber, matches, new Set());
@@ -1240,7 +1244,7 @@ export class TournamentDB {
   ) {
     if (!tournamentId || !matchId || !winner) return;
 
-    await this.resetMatchAndDescendants(tournamentId, matchId);
+    await this.resetMatchAndDescendants(tournamentId, matchId,true);
 
     const ref = this.tDoc(tournamentId, "matches", matchId);
 
@@ -1253,6 +1257,7 @@ export class TournamentDB {
       scorePlayer2,
       resultSource: "manual",
       manuallyCorrectedAt: new Date(),
+      statsUpdatedAt: new Date(),
     });
 
     const matches = await this.getMatchesByTournamentId(tournamentId);

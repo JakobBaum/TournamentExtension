@@ -1260,3 +1260,14 @@
 .phase-settings-note--dialog {
   margin-top: 12px;
 }
+
+
+.match-subline--manual {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: rgba(255, 200, 80, 0.1);
+  border: 1px solid rgba(255, 200, 80, 0.22);
+  color: #ffe3a1;
+  font-size: 12px;
+}
