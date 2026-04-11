@@ -1244,3 +1244,19 @@
     grid-template-columns: 1fr;
   }
 }
+
+.config-card-hint,
+.phase-settings-note {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.06);
+  color: #b9c9ee;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.phase-settings-note--dialog {
+  margin-top: 12px;
+}

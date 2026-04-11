@@ -102,11 +102,94 @@ const DEFAULT_PLAYERS = [
 const activeMatchWatchers = new Set();
 const cancelledMatchWatchers = new Set();
 const LAST_TOURNAMENT_STORAGE_KEY = "adTournamentLastTournamentId";
+const DEFAULT_MATCH_SETTINGS = {
+  baseScore: 501,
+  inMode: "Straight",
+  outMode: "Double",
+  maxRounds: 50,
+  bullMode: "25/50",
+  bullOffMode: "Normal",
+  matchMode: "Legs",
+  legs: 3,
+  sets: 3,
+  legsOfSet: 3,
+};
+const DEFAULT_TOURNAMENT_FORMAT = {
+  groupSize: 4,
+  qualifiers: 2,
+  playAllPlaces: false,
+};
 
 const cx = (...classes) => classes.filter(Boolean).join(" ");
 
 const isRealPlayer = (player) => player && typeof player === "object" && player.type === "player";
 const isBye = (player) => player && typeof player === "object" && player.type === "bye";
+
+function extractMatchSettings(settings = {}) {
+  return {
+    baseScore: Number(settings?.baseScore) || DEFAULT_MATCH_SETTINGS.baseScore,
+    inMode: settings?.inMode || DEFAULT_MATCH_SETTINGS.inMode,
+    outMode: settings?.outMode || DEFAULT_MATCH_SETTINGS.outMode,
+    maxRounds: Number(settings?.maxRounds) || DEFAULT_MATCH_SETTINGS.maxRounds,
+    bullMode: settings?.bullMode || DEFAULT_MATCH_SETTINGS.bullMode,
+    bullOffMode: settings?.bullOffMode || DEFAULT_MATCH_SETTINGS.bullOffMode,
+    matchMode: settings?.matchMode || DEFAULT_MATCH_SETTINGS.matchMode,
+    legs: Number(settings?.legs) || DEFAULT_MATCH_SETTINGS.legs,
+    sets: Number(settings?.sets) || DEFAULT_MATCH_SETTINGS.sets,
+    legsOfSet: Number(settings?.legsOfSet) || DEFAULT_MATCH_SETTINGS.legsOfSet,
+  };
+}
+
+function extractTournamentFormatSettings(settings = {}) {
+  return {
+    groupSize: Number(settings?.groupSize) || DEFAULT_TOURNAMENT_FORMAT.groupSize,
+    qualifiers: Number(settings?.qualifiers) || DEFAULT_TOURNAMENT_FORMAT.qualifiers,
+    playAllPlaces:
+      typeof settings?.playAllPlaces === "boolean"
+        ? settings.playAllPlaces
+        : DEFAULT_TOURNAMENT_FORMAT.playAllPlaces,
+  };
+}
+
+function normalizeRoundSettings(roundSettings = {}) {
+  return Object.fromEntries(
+    Object.entries(roundSettings || {}).map(([roundKey, value]) => [
+      String(roundKey),
+      extractMatchSettings(value),
+    ]),
+  );
+}
+
+function normalizeTournamentSettings(settings = {}) {
+  const root = settings || {};
+  return {
+    global: extractMatchSettings(root?.defaultMatchSettings || root),
+    format: extractTournamentFormatSettings(root?.tournamentFormat || root),
+    roundSettings: normalizeRoundSettings(root?.roundSettings || {}),
+  };
+}
+
+function buildTournamentSettingsPayload(globalSettings = {}, formatSettings = {}, roundSettings = {}) {
+  const normalizedGlobal = extractMatchSettings(globalSettings);
+  const normalizedFormat = extractTournamentFormatSettings(formatSettings);
+  const normalizedRoundSettings = normalizeRoundSettings(roundSettings);
+
+  return {
+    ...normalizedGlobal,
+    ...normalizedFormat,
+    defaultMatchSettings: normalizedGlobal,
+    tournamentFormat: normalizedFormat,
+    roundSettings: normalizedRoundSettings,
+  };
+}
+
+function getEffectiveMatchSettings(match, globalSettings, roundSettings = {}) {
+  const roundOverride = roundSettings?.[String(match?.round)] || null;
+  return extractMatchSettings({
+    ...extractMatchSettings(globalSettings),
+    ...(roundOverride || {}),
+  });
+}
 
 function getDisplayName(player) {
   if (!player) return "—";
@@ -119,12 +202,38 @@ function getDisplayName(player) {
 
   if (player.type === "bye") return "Freilos";
   if (player.type === "player") return player.name || "—";
-  if (player.type === "match") return `Sieger Spiel ${player.ref}`;
+  if (player.type === "match") {
+    const sourceLabel = player.source === "loser" ? "Verlierer" : "Sieger";
+    return `${sourceLabel} Spiel ${player.ref}`;
+  }
   if (player.type === "qualifier") return player.ref;
   if (player.name) return player.name;
 
   return "—";
 }
+
+
+function getMatchTitle(match, labelPrefix = "") {
+  if (!match) return "Spiel";
+
+  const matchNumberLabel = `${labelPrefix || "Spiel"} ${match.matchNumber}`;
+  const roundName = String(match.displayRoundName || "").trim();
+
+  if (!roundName) {
+    return matchNumberLabel;
+  }
+
+  const shouldSwapOrder =
+    /^Plätze\s+\d+\s*-\s*\d+$/i.test(roundName) ||
+    /^Platz\s+\d+$/i.test(roundName);
+
+  if (shouldSwapOrder) {
+    return `${matchNumberLabel} – ${roundName}`;
+  }
+
+  return `${roundName} – ${matchNumberLabel}`;
+}
+
 
 function formatStatValue(value, digits = 1) {
   const num = Number(value || 0);
@@ -459,12 +568,46 @@ function canRestartMatch(match) {
   return isRealPlayer(match.player1) && isRealPlayer(match.player2);
 }
 
-function getStatusLabel(status) {
+function isDoubleByeMatch(match) {
+  return match?.player1?.type === "bye" && match?.player2?.type === "bye";
+}
+
+function getStatusLabel(matchOrStatus) {
+  if (typeof matchOrStatus === "object" && isDoubleByeMatch(matchOrStatus)) {
+    return "Freilose";
+  }
+
+  const status = typeof matchOrStatus === "string" ? matchOrStatus : matchOrStatus?.status;
+
   if (status === "finished") return "Fertig";
   if (status === "aborted") return "Abgebrochen";
   if (status === "started" || status === "live" || status === "running") return "Live";
   if (status === "pending") return "Offen";
   return status || "Unbekannt";
+}
+
+function getMatchResultLabel(match) {
+  if (!match) return "Ergebnis";
+
+  if (isDoubleByeMatch(match)) {
+    return "Freilose";
+  }
+
+  if (match?.status === "finished") {
+    if (typeof match?.winnerPlace === "number" && match?.winner?.type === "player") {
+      return `Platz ${match.winnerPlace}`;
+    }
+
+    if (match?.winner?.type === "player") {
+      return "Sieger";
+    }
+  }
+
+  if (match?.bracketType === "placement") {
+    return "Weiter";
+  }
+
+  return "Sieger";
 }
 
 function getStatusClass(status) {
@@ -608,6 +751,7 @@ function RoundSection({
   subtitle,
   badge,
   defaultOpen = false,
+  actions = null,
   children,
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
@@ -633,6 +777,7 @@ function RoundSection({
 
         <div className="round-section-toggle-right">
           {badge ? <span className="round-section-badge">{badge}</span> : null}
+          {actions ? <span className="collapse-inline-actions">{actions}</span> : null}
         </div>
       </button>
 
@@ -695,7 +840,14 @@ function GroupStandingsTable({ standings, qualifiedPerGroup }) {
 function MatchPlayerRow({ match, slot, matchMode, onGiveUpMatch }) {
   const player = slot === "player1" ? match.player1 : match.player2;
   const score = getPlayerScore(match, slot, matchMode);
-  const isWinner = match?.winner?.name && match?.winner?.name === player?.name;
+ const isDoubleBye =
+  match?.player1?.type === "bye" && match?.player2?.type === "bye";
+
+const isWinner =
+  !isDoubleBye &&
+  match?.winner &&
+  player &&
+  match.winner === player;
 
   return (
     <div className={cx("player-row", "compact-player-row", isWinner && "winner-row")}>
@@ -737,10 +889,7 @@ function MatchCard({
     >
       <div className="match-head">
         <div className="match-title-stack">
-          <span className="match-number">
-            {match.displayRoundName ||
-              (labelPrefix ? `${labelPrefix} ${match.matchNumber}` : match.matchNumber)}
-          </span>
+          <span className="match-number">{getMatchTitle(match, labelPrefix)}</span>
           {match.group && <span className="match-subline">{match.group}</span>}
         </div>
 
@@ -765,7 +914,7 @@ function MatchCard({
       </div>
 
       <div className="match-foot">
-        <span>Sieger</span>
+        <span>{getMatchResultLabel(match)}</span>
         <span>{getDisplayName(match.winner)}</span>
       </div>
 
@@ -1111,6 +1260,9 @@ function TournamentTree({
   onRestartMatch,
   onAbortLiveMatch,
   tournamentId,
+  roundSettings,
+  onOpenRoundSettings,
+  onOpenGlobalSettings,
 }) {
   const groupMatches = useMemo(
     () => sortMatchesByMatchNumber(matches.filter((match) => match.group)),
@@ -1172,6 +1324,9 @@ function TournamentTree({
             badge={`${groupMatches.length} Spiele`}
             defaultOpen={initialGroupPhaseOpen}
           >
+            <div className="phase-settings-note">
+              Für die Gruppenphase gelten die globalen Spieleinstellungen. Rundeneinstellungen gelten nur für die KO-Runden.
+            </div>
             <div className="group-sections">
               {groupTables.map((groupTable) => (
                 <div className="group-block" key={groupTable.name}>
@@ -1225,9 +1380,29 @@ function TournamentTree({
                 <RoundSection
                   key={`round-${roundBlock.round}`}
                   title={`Runde ${roundBlock.round}`}
-                  subtitle="Spiele dieser Runde"
+                  subtitle={roundSettings?.[String(roundBlock.round)] ? "Eigene Spieleinstellungen aktiv" : "Spiele dieser Runde"}
                   badge={`${roundMatches.length} ${roundMatches.length === 1 ? "Spiel" : "Spiele"}`}
                   defaultOpen={initialRoundOpenMap[roundBlock.round] ?? false}
+                  actions={
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      className="btn btn--secondary btn--xs"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onOpenRoundSettings?.(roundBlock.round);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onOpenRoundSettings?.(roundBlock.round);
+                        }
+                      }}
+                    >
+                      Rundeneinstellungen
+                    </span>
+                  }
                 >
                   <div className="round-match-grid">
                     {roundMatches.map((match) => (
@@ -1295,6 +1470,10 @@ export default function TournamentApp() {
   const [selectedMatch, setSelectedMatch] = useState(null);
 
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
+  const [roundSettingsMap, setRoundSettingsMap] = useState({});
+  const [showRoundSettingsDialog, setShowRoundSettingsDialog] = useState(false);
+  const [selectedRoundNumber, setSelectedRoundNumber] = useState(null);
+  const [roundSettingsDraft, setRoundSettingsDraft] = useState(DEFAULT_MATCH_SETTINGS);
   const [showEditResultDialog, setShowEditResultDialog] = useState(false);
   const [editingMatch, setEditingMatch] = useState(null);
   const [editingWinnerSlot, setEditingWinnerSlot] = useState("player1");
@@ -1313,9 +1492,6 @@ export default function TournamentApp() {
       legs,
       sets,
       legsOfSet,
-      groupSize,
-      qualifiers,
-      playAllPlaces,
     }),
     [
       baseScore,
@@ -1328,10 +1504,21 @@ export default function TournamentApp() {
       legs,
       sets,
       legsOfSet,
+    ],
+  );
+
+  const tournamentFormatSettings = useMemo(
+    () => ({
       groupSize,
       qualifiers,
       playAllPlaces,
-    ],
+    }),
+    [groupSize, qualifiers, playAllPlaces],
+  );
+
+  const tournamentSettingsPayload = useMemo(
+    () => buildTournamentSettingsPayload(currentSettings, tournamentFormatSettings, roundSettingsMap),
+    [currentSettings, tournamentFormatSettings, roundSettingsMap],
   );
 
   const applyTournamentState = useCallback((tournament, nextScreen = "tournament") => {
@@ -1342,22 +1529,24 @@ export default function TournamentApp() {
     setTournamentName(tournament.name || "Turnier");
     setMode(tournament.type === "GROUP_KO" ? "GROUP_KO" : "KO");
 
-    if (tournament?.settings) {
-      const s = tournament.settings;
-      if (s.baseScore != null) setBaseScore(Number(s.baseScore) || 501);
-      if (s.inMode) setInMode(s.inMode);
-      if (s.outMode) setOutMode(s.outMode);
-      if (s.maxRounds != null) setMaxRounds(Number(s.maxRounds) || 50);
-      if (s.bullMode) setBullMode(s.bullMode);
-      if (s.bullOffMode) setBullOffMode(s.bullOffMode);
-      if (s.matchMode) setMatchMode(s.matchMode);
-      if (s.legs != null) setLegs(Number(s.legs) || 3);
-      if (s.sets != null) setSets(Number(s.sets) || 3);
-      if (s.legsOfSet != null) setLegsOfSet(Number(s.legsOfSet) || 3);
-      if (s.groupSize != null) setGroupSize(Number(s.groupSize) || 4);
-      if (s.qualifiers != null) setQualifiers(Number(s.qualifiers) || 2);
-      if (typeof s.playAllPlaces === "boolean") setPlayAllPlaces(s.playAllPlaces);
-    }
+    const normalizedSettings = normalizeTournamentSettings(tournament?.settings || {});
+    const globalSettings = normalizedSettings.global;
+    const formatSettings = normalizedSettings.format;
+
+    setBaseScore(globalSettings.baseScore);
+    setInMode(globalSettings.inMode);
+    setOutMode(globalSettings.outMode);
+    setMaxRounds(globalSettings.maxRounds);
+    setBullMode(globalSettings.bullMode);
+    setBullOffMode(globalSettings.bullOffMode);
+    setMatchMode(globalSettings.matchMode);
+    setLegs(globalSettings.legs);
+    setSets(globalSettings.sets);
+    setLegsOfSet(globalSettings.legsOfSet);
+    setGroupSize(formatSettings.groupSize);
+    setQualifiers(formatSettings.qualifiers);
+    setPlayAllPlaces(formatSettings.playAllPlaces);
+    setRoundSettingsMap(normalizedSettings.roundSettings);
 
     setScreen(nextScreen);
   }, []);
@@ -1390,7 +1579,7 @@ export default function TournamentApp() {
       await db.updateTournamentSetup(tournamentId, {
         name: tournamentName,
         type: mode,
-        settings: currentSettings,
+        settings: tournamentSettingsPayload,
       });
 
       alert("Turniereinstellungen gespeichert.");
@@ -1398,7 +1587,54 @@ export default function TournamentApp() {
       console.error(error);
       alert("Turniereinstellungen konnten nicht gespeichert werden.");
     }
-  }, [currentSettings, mode, tournamentId, tournamentName]);
+  }, [mode, tournamentId, tournamentName, tournamentSettingsPayload]);
+
+
+  const openRoundSettingsDialog = useCallback(
+    (roundNumber) => {
+      const roundKey = String(roundNumber);
+      setSelectedRoundNumber(Number(roundNumber));
+      setRoundSettingsDraft(
+        extractMatchSettings(roundSettingsMap?.[roundKey] || currentSettings),
+      );
+      setShowRoundSettingsDialog(true);
+    },
+    [currentSettings, roundSettingsMap],
+  );
+
+  const handleSaveRoundSettings = useCallback(async () => {
+    try {
+      if (!tournamentId || selectedRoundNumber == null) return;
+
+      const nextRoundSettings = {
+        ...roundSettingsMap,
+        [String(selectedRoundNumber)]: extractMatchSettings(roundSettingsDraft),
+      };
+
+      await db.updateTournamentSetup(tournamentId, {
+        name: tournamentName,
+        type: mode,
+        settings: buildTournamentSettingsPayload(currentSettings, tournamentFormatSettings, nextRoundSettings),
+      });
+
+      setRoundSettingsMap(nextRoundSettings);
+      setShowRoundSettingsDialog(false);
+      setSelectedRoundNumber(null);
+      alert(`Rundeneinstellungen für Runde ${selectedRoundNumber} gespeichert.`);
+    } catch (error) {
+      console.error(error);
+      alert("Rundeneinstellungen konnten nicht gespeichert werden.");
+    }
+  }, [
+    tournamentId,
+    selectedRoundNumber,
+    roundSettingsMap,
+    roundSettingsDraft,
+    tournamentName,
+    mode,
+    currentSettings,
+    tournamentFormatSettings,
+  ]);
 
   const loadBoards = useCallback(async () => {
     try {
@@ -1551,13 +1787,13 @@ export default function TournamentApp() {
         selectedBoards,
         groupSize,
         qualifiers,
-        currentSettings,
+        tournamentSettingsPayload,
       );
 
       await db.updateTournamentSetup(result.id, {
         name: tournamentName.trim() || "Mein Turnier",
         type,
-        settings: currentSettings,
+        settings: tournamentSettingsPayload,
       });
 
       localStorage.setItem(LAST_TOURNAMENT_STORAGE_KEY, result.id);
@@ -1567,7 +1803,7 @@ export default function TournamentApp() {
           code: result.code,
           name: tournamentName.trim() || "Mein Turnier",
           type,
-          settings: currentSettings,
+          settings: tournamentSettingsPayload,
         },
         "tournament",
       );
@@ -1635,14 +1871,23 @@ export default function TournamentApp() {
 
       await db.assignBoard(tournamentId, boardDoc, selectedMatch.id);
 
+      const effectiveSettings = getEffectiveMatchSettings(
+        selectedMatch,
+        currentSettings,
+        roundSettingsMap,
+      );
+
       const lobby = await autodartsApi.createLobby({
-        baseScore,
-        inMode,
-        outMode,
-        bullMode,
-        bullOffMode,
-        maxRounds,
-        legs: matchMode === "Legs" ? legs : legsOfSet,
+        baseScore: effectiveSettings.baseScore,
+        inMode: effectiveSettings.inMode,
+        outMode: effectiveSettings.outMode,
+        bullMode: effectiveSettings.bullMode,
+        bullOffMode: effectiveSettings.bullOffMode,
+        maxRounds: effectiveSettings.maxRounds,
+        legs:
+          effectiveSettings.matchMode === "Legs"
+            ? effectiveSettings.legs
+            : effectiveSettings.legsOfSet,
       });
 
       const player1Name = selectedMatch.player1?.name;
@@ -1695,15 +1940,8 @@ export default function TournamentApp() {
     tournamentId,
     selectedBoardId,
     freeBoards,
-    baseScore,
-    inMode,
-    outMode,
-    bullMode,
-    bullOffMode,
-    maxRounds,
-    matchMode,
-    legs,
-    legsOfSet,
+    currentSettings,
+    roundSettingsMap,
   ]);
 
   const handleGiveUpMatch = useCallback(
@@ -1952,7 +2190,7 @@ export default function TournamentApp() {
             </div>
 
             <div className="form-hero">
-              <h2>AutoDarts Turnier erstellen</h2>
+              <h2>{tournamentName}</h2>
               <div className="panel-subtitle">
                 Erstelle ein KO- oder Gruppen-Turnier für Autodarts.
               </div>
@@ -1962,19 +2200,22 @@ export default function TournamentApp() {
               <div className="config-card">
                 <div className="config-card-title">Allgemein</div>
                 <div className="grid">
-                  <div className="field">
-                    <label>Turniername</label>
-                    <input
-                      value={tournamentName}
-                      onChange={(e) => setTournamentName(e.target.value)}
-                    />
-                  </div>
-
-                  <div className="field">
+                <div className="field">
                     <label>Turniermodus</label>
                     <select value={mode} onChange={(e) => setMode(e.target.value)}>
                       <option value="KO">KO</option>
                       <option value="GROUP_KO">Gruppen + KO</option>
+                    </select>
+                  </div>
+
+                   <div className="field">
+                    <label>Platzierungsspiele</label>
+                    <select
+                      value={playAllPlaces ? "all" : "top_only"}
+                      onChange={(e) => setPlayAllPlaces(e.target.value === "all")}
+                    >
+                      <option value="top_only">Nur Siegerbaum</option>
+                      <option value="all">Alle KO-Plätze ausspielen</option>
                     </select>
                   </div>
                 </div>
@@ -2111,6 +2352,9 @@ export default function TournamentApp() {
               {mode === "GROUP_KO" && (
                 <div className="config-card">
                   <div className="config-card-title">Gruppenphase</div>
+                  <div className="config-card-hint">
+                    Hinweis: In Gruppen + KO gelten die globalen Spieleinstellungen für die Gruppenphase. Eigene Rundeneinstellungen kannst du später für die KO-Runden setzen.
+                  </div>
                   <div className="grid">
                     <div className="field">
                       <label>Spieler pro Gruppe</label>
@@ -2142,22 +2386,6 @@ export default function TournamentApp() {
                   </div>
                 </div>
               )}
-
-              <div className="config-card">
-                <div className="config-card-title">KO-Platzierungen</div>
-                <div className="grid">
-                  <div className="field">
-                    <label>Platzierungsspiele</label>
-                    <select
-                      value={playAllPlaces ? "all" : "top_only"}
-                      onChange={(e) => setPlayAllPlaces(e.target.value === "all")}
-                    >
-                      <option value="top_only">Nur Siegerbaum</option>
-                      <option value="all">Alle KO-Plätze ausspielen</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
 
               <div className="config-card">
                 <div className="config-card-title">Verfügbare Autodarts-Boards</div>
@@ -2314,6 +2542,9 @@ export default function TournamentApp() {
   onRestartMatch={handleRestartMatch}
   onAbortLiveMatch={handleAbortLiveMatch}
   tournamentId={tournamentId}
+  roundSettings={roundSettingsMap}
+  onOpenRoundSettings={openRoundSettingsDialog}
+  onOpenGlobalSettings={() => setShowSettingsDialog(true)}
 />
 
         <FinalStandingsTable
@@ -2346,6 +2577,11 @@ export default function TournamentApp() {
             <div className="board-dialog-subtitle">
               Gespeicherte Einstellungen ändern und für neue Spiele übernehmen.
             </div>
+            {mode === "GROUP_KO" && (
+              <div className="phase-settings-note phase-settings-note--dialog">
+                Diese globalen Spieleinstellungen gelten auch für die Gruppenphase. Rundeneinstellungen überschreiben sie nur in der KO-Finalrunde.
+              </div>
+            )}
 
             <div className="config-sections settings-editor-grid">
               <div className="config-card">
@@ -2489,6 +2725,163 @@ export default function TournamentApp() {
                 }}
               >
                 Einstellungen speichern
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRoundSettingsDialog && (
+        <div className="board-dialog-overlay">
+          <div className="board-dialog board-dialog--wide">
+            <h3>Rundeneinstellungen bearbeiten</h3>
+            <div className="board-dialog-subtitle">
+              Runde {selectedRoundNumber}: Diese Werte überschreiben die globalen Einstellungen nur für diese Runde.
+            </div>
+
+            <div className="config-sections settings-editor-grid">
+              <div className="config-card">
+                <div className="config-card-title">Spiel-Einstellungen für Runde {selectedRoundNumber}</div>
+                <div className="grid">
+                  <div className="field">
+                    <label>Startscore</label>
+                    <select
+                      value={roundSettingsDraft.baseScore}
+                      onChange={(e) => setRoundSettingsDraft((prev) => ({ ...prev, baseScore: Number(e.target.value) }))}
+                    >
+                      {SCORE_OPTIONS.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="field">
+                    <label>In</label>
+                    <select
+                      value={roundSettingsDraft.inMode}
+                      onChange={(e) => setRoundSettingsDraft((prev) => ({ ...prev, inMode: e.target.value }))}
+                    >
+                      {MODE_OPTIONS.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="field">
+                    <label>Out</label>
+                    <select
+                      value={roundSettingsDraft.outMode}
+                      onChange={(e) => setRoundSettingsDraft((prev) => ({ ...prev, outMode: e.target.value }))}
+                    >
+                      {MODE_OPTIONS.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="field">
+                    <label>Maximale Runden</label>
+                    <select
+                      value={roundSettingsDraft.maxRounds}
+                      onChange={(e) => setRoundSettingsDraft((prev) => ({ ...prev, maxRounds: Number(e.target.value) }))}
+                    >
+                      {MAX_ROUNDS_OPTIONS.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="field">
+                    <label>Bull-Modus</label>
+                    <select
+                      value={roundSettingsDraft.bullMode}
+                      onChange={(e) => setRoundSettingsDraft((prev) => ({ ...prev, bullMode: e.target.value }))}
+                    >
+                      {BULL_MODE_OPTIONS.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="field">
+                    <label>Bull-Off</label>
+                    <select
+                      value={roundSettingsDraft.bullOffMode}
+                      onChange={(e) => setRoundSettingsDraft((prev) => ({ ...prev, bullOffMode: e.target.value }))}
+                    >
+                      {BULL_OFF_OPTIONS.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="field">
+                    <label>Match-Modus</label>
+                    <select
+                      value={roundSettingsDraft.matchMode}
+                      onChange={(e) => setRoundSettingsDraft((prev) => ({ ...prev, matchMode: e.target.value }))}
+                    >
+                      {MATCH_MODE_OPTIONS.map((option) => (
+                        <option key={option} value={option}>{option}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {roundSettingsDraft.matchMode === "Legs" ? (
+                    <div className="field">
+                      <label>Best of Legs</label>
+                      <select
+                        value={roundSettingsDraft.legs}
+                        onChange={(e) => setRoundSettingsDraft((prev) => ({ ...prev, legs: Number(e.target.value) }))}
+                      >
+                        {LEGS_OPTIONS.map((option) => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="field">
+                        <label>Best of Sets</label>
+                        <select
+                          value={roundSettingsDraft.sets}
+                          onChange={(e) => setRoundSettingsDraft((prev) => ({ ...prev, sets: Number(e.target.value) }))}
+                        >
+                          {SETS_OPTIONS.map((option) => (
+                            <option key={option} value={option}>{option}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="field">
+                        <label>Legs pro Set</label>
+                        <select
+                          value={roundSettingsDraft.legsOfSet}
+                          onChange={(e) => setRoundSettingsDraft((prev) => ({ ...prev, legsOfSet: Number(e.target.value) }))}
+                        >
+                          {LEGS_OF_SET_OPTIONS.map((option) => (
+                            <option key={option} value={option}>{option}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="board-dialog-actions">
+              <button
+                className="btn btn--secondary"
+                onClick={() => {
+                  setShowRoundSettingsDialog(false);
+                  setSelectedRoundNumber(null);
+                }}
+              >
+                Schließen
+              </button>
+              <button className="btn btn--primary" onClick={handleSaveRoundSettings}>
+                Rundeneinstellungen speichern
               </button>
             </div>
           </div>

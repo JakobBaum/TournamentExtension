@@ -338,6 +338,54 @@ export class Logik {
       nextMatchNumber: matchNumber,
     };
   }
+  distributeSlotsAvoidingDoubleByes(entries = []) {
+  const realPlayers = this.shuffleArray(
+    entries.filter((entry) => entry?.type !== "bye")
+  );
+  const byes = entries.filter((entry) => entry?.type === "bye");
+
+  if (byes.length === 0) return realPlayers;
+  if (realPlayers.length === 0) return byes;
+
+  const totalSlots = realPlayers.length + byes.length;
+  const result = new Array(totalSlots).fill(null);
+
+  let playerIndex = 0;
+  for (let i = 0; i < totalSlots; i += 2) {
+    if (playerIndex < realPlayers.length) {
+      result[i] = realPlayers[playerIndex++];
+    }
+  }
+
+  for (let i = 1; i < totalSlots; i += 2) {
+    if (playerIndex < realPlayers.length) {
+      result[i] = realPlayers[playerIndex++];
+    }
+  }
+
+  let byeIndex = 0;
+  for (let i = 0; i < totalSlots && byeIndex < byes.length; i++) {
+    if (result[i]) continue;
+
+    const left = i > 0 ? result[i - 1] : null;
+    const right = i < totalSlots - 1 ? result[i + 1] : null;
+
+    const leftIsBye = left?.type === "bye";
+    const rightIsBye = right?.type === "bye";
+
+    if (!leftIsBye && !rightIsBye) {
+      result[i] = byes[byeIndex++];
+    }
+  }
+
+  for (let i = 0; i < totalSlots && byeIndex < byes.length; i++) {
+    if (!result[i]) {
+      result[i] = byes[byeIndex++];
+    }
+  }
+
+  return result;
+}
 
   generateTournament(players, playersPerGroup = 4, qualifiedPerGroup = 2, options = {}) {
     if (!Array.isArray(players) || players.length < 2) {
@@ -412,10 +460,10 @@ export class Logik {
     }
 
     const bracketSize = this.nextPowerOfTwo(qualifierRefs.length);
-    const koSlots = this.shuffleArray([
-      ...qualifierRefs,
-      ...Array.from({ length: bracketSize - qualifierRefs.length }, () => this.createBye()),
-    ]);
+    const koSlots = this.distributeSlotsAvoidingDoubleByes([
+  ...qualifierRefs,
+  ...Array.from({ length: bracketSize - qualifierRefs.length }, () => this.createBye()),
+]);
 
     const bracket = this.buildMainBracket(koSlots, {
       startRound: 2,
@@ -439,10 +487,10 @@ export class Logik {
 
     const bracketSize = this.nextPowerOfTwo(players.length);
     const byes = bracketSize - players.length;
-    const firstRoundPlayers = this.shuffleArray([
-      ...this.shuffleArray(players),
-      ...Array.from({ length: byes }, () => this.createBye()),
-    ]);
+    const firstRoundPlayers = this.distributeSlotsAvoidingDoubleByes([
+  ...players,
+  ...Array.from({ length: byes }, () => this.createBye()),
+]);
 
     const bracket = this.buildMainBracket(firstRoundPlayers, {
       startRound: 1,

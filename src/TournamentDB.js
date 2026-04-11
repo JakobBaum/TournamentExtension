@@ -238,6 +238,76 @@ export class TournamentDB {
     return player;
   }
 
+  resolveSlotFromMatches(slot, matches = []) {
+    if (!slot || slot.type !== "match") return null;
+
+    const sourceMatch = matches.find((entry) => String(entry.matchNumber) === String(slot.ref));
+    if (!sourceMatch) return null;
+
+    const sourceType = slot.source || "winner";
+    const sourcePlayer = sourceType === "loser" ? sourceMatch.loser : sourceMatch.winner;
+
+    if (!sourcePlayer) return null;
+
+    return this.normalizePropagatedPlayer(sourcePlayer);
+  }
+
+  buildAutoResultFromPlayers(player1, player2) {
+    const p1Real = this.isRealPlayer(player1);
+    const p2Real = this.isRealPlayer(player2);
+    const p1Bye = this.isBye(player1);
+    const p2Bye = this.isBye(player2);
+
+    if (p1Real && p2Bye) {
+      return {
+        winner: this.normalizePropagatedPlayer(player1),
+        loser: this.normalizePropagatedPlayer(player2),
+        status: "finished",
+        finishedAt: new Date().toISOString(),
+        resultSource: "bye",
+      };
+    }
+
+    if (p2Real && p1Bye) {
+      return {
+        winner: this.normalizePropagatedPlayer(player2),
+        loser: this.normalizePropagatedPlayer(player1),
+        status: "finished",
+        finishedAt: new Date().toISOString(),
+        resultSource: "bye",
+      };
+    }
+
+    if (p1Bye && p2Bye) {
+      return {
+        winner: this.createBye(),
+        loser: this.createBye(),
+        status: "finished",
+        finishedAt: new Date().toISOString(),
+        resultSource: "bye",
+      };
+    }
+
+    if (p1Real && p2Real) {
+      return {
+        winner: null,
+        loser: null,
+        status: "pending",
+        finishedAt: null,
+        resultSource: null,
+        scorePlayer1: null,
+        scorePlayer2: null,
+        finalPlayerStats: null,
+        statsUpdatedAt: null,
+        manuallyCorrectedAt: null,
+        lobbyId: null,
+        boardId: null,
+      };
+    }
+
+    return null;
+  }
+
   clearMatchResultFields() {
     return {
       winner: null,
@@ -663,15 +733,17 @@ export class TournamentDB {
     if (!sourceMatch?.winner && !sourceMatch?.loser) return;
 
     const matches = Array.isArray(providedMatches)
-      ? providedMatches
+      ? [...providedMatches]
       : await this.getMatchesByTournamentId(tournamentId);
 
+    const matchMap = new Map(matches.map((entry) => [entry.id, { ...entry }]));
     const dependentMatches = this.getDependentMatchesBySource(matches, sourceMatch.matchNumber);
 
     for (const nextMatch of dependentMatches) {
+      const currentMatch = matchMap.get(nextMatch.id) || { ...nextMatch };
       const updates = {};
 
-      const resolveSourcePlayer = (slot) => {
+      const resolveTriggeredSourcePlayer = (slot) => {
         if (slot?.type !== "match") return null;
         if (String(slot.ref) !== String(sourceMatch.matchNumber)) return null;
 
@@ -680,74 +752,54 @@ export class TournamentDB {
         return this.normalizePropagatedPlayer(sourcePlayer);
       };
 
-      const propagatedPlayer1 = resolveSourcePlayer(nextMatch.player1);
-      const propagatedPlayer2 = resolveSourcePlayer(nextMatch.player2);
+      const currentMatches = [...matchMap.values()];
+      const propagatedPlayer1 =
+        resolveTriggeredSourcePlayer(currentMatch.player1) ||
+        this.resolveSlotFromMatches(currentMatch.player1, currentMatches);
+      const propagatedPlayer2 =
+        resolveTriggeredSourcePlayer(currentMatch.player2) ||
+        this.resolveSlotFromMatches(currentMatch.player2, currentMatches);
 
-      if (propagatedPlayer1) {
+      if (
+        propagatedPlayer1 &&
+        this.buildPlayerSignature(propagatedPlayer1) !== this.buildPlayerSignature(currentMatch.player1)
+      ) {
         updates.player1 = propagatedPlayer1;
       }
 
-      if (propagatedPlayer2) {
+      if (
+        propagatedPlayer2 &&
+        this.buildPlayerSignature(propagatedPlayer2) !== this.buildPlayerSignature(currentMatch.player2)
+      ) {
         updates.player2 = propagatedPlayer2;
       }
 
-      const newPlayer1 = updates.player1 ?? nextMatch.player1;
-      const newPlayer2 = updates.player2 ?? nextMatch.player2;
+      const newPlayer1 = updates.player1 ?? currentMatch.player1;
+      const newPlayer2 = updates.player2 ?? currentMatch.player2;
 
-      const p1Real = this.isRealPlayer(newPlayer1);
-      const p2Real = this.isRealPlayer(newPlayer2);
-      const p1Bye = this.isBye(newPlayer1);
-      const p2Bye = this.isBye(newPlayer2);
-
-      if (p1Real && p2Bye) {
-        updates.winner = newPlayer1;
-        updates.loser = newPlayer2;
-        updates.status = "finished";
-        updates.finishedAt = new Date().toISOString();
-        updates.resultSource = "bye";
-      } else if (p2Real && p1Bye) {
-        updates.winner = newPlayer2;
-        updates.loser = newPlayer1;
-        updates.status = "finished";
-        updates.finishedAt = new Date().toISOString();
-        updates.resultSource = "bye";
-      } else if (p1Bye && p2Bye) {
-        updates.winner = this.createBye();
-        updates.loser = this.createBye();
-        updates.status = "finished";
-        updates.finishedAt = new Date().toISOString();
-        updates.resultSource = "bye";
-      } else if (p1Real && p2Real) {
-        updates.winner = null;
-        updates.loser = null;
-        updates.status = "pending";
-        updates.finishedAt = null;
-        updates.resultSource = null;
-        updates.scorePlayer1 = null;
-        updates.scorePlayer2 = null;
-        updates.finalPlayerStats = null;
-        updates.statsUpdatedAt = null;
-        updates.manuallyCorrectedAt = null;
-        updates.lobbyId = null;
-        updates.boardId = null;
+      const autoResult = this.buildAutoResultFromPlayers(newPlayer1, newPlayer2);
+      if (autoResult) {
+        Object.assign(updates, autoResult);
       }
 
       if (!Object.keys(updates).length) continue;
 
-      await updateDoc(this.tDoc(tournamentId, "matches", nextMatch.id), updates);
+      await updateDoc(this.tDoc(tournamentId, "matches", currentMatch.id), updates);
 
       const updatedNextMatch = {
-        ...nextMatch,
+        ...currentMatch,
         ...updates,
       };
 
+      matchMap.set(updatedNextMatch.id, updatedNextMatch);
+
       if (updatedNextMatch.winner || updatedNextMatch.loser) {
-        await this.propagateFromMatch(tournamentId, updatedNextMatch, matches);
+        await this.propagateFromMatch(tournamentId, updatedNextMatch, [...matchMap.values()]);
       } else {
         await this.resetMatchChainFromMatchNumber(
           tournamentId,
           updatedNextMatch.matchNumber,
-          matches,
+          [...matchMap.values()],
           new Set(),
         );
       }
@@ -844,29 +896,10 @@ export class TournamentDB {
         const newPlayer1 = updates.player1 ?? match.player1;
         const newPlayer2 = updates.player2 ?? match.player2;
 
-        const p1Ready = this.isRealPlayer(newPlayer1);
-        const p2Ready = this.isRealPlayer(newPlayer2);
-        const p1Bye = this.isBye(newPlayer1);
-        const p2Bye = this.isBye(newPlayer2);
+        const autoResult = this.buildAutoResultFromPlayers(newPlayer1, newPlayer2);
 
-        if (p1Ready && p2Bye) {
-          updates.winner = newPlayer1;
-          updates.loser = newPlayer2;
-          updates.status = "finished";
-          updates.finishedAt = new Date().toISOString();
-          updates.resultSource = "bye";
-        } else if (p2Ready && p1Bye) {
-          updates.winner = newPlayer2;
-          updates.loser = newPlayer1;
-          updates.status = "finished";
-          updates.finishedAt = new Date().toISOString();
-          updates.resultSource = "bye";
-        } else if (p1Bye && p2Bye) {
-          updates.winner = this.createBye();
-          updates.loser = this.createBye();
-          updates.status = "finished";
-          updates.finishedAt = new Date().toISOString();
-          updates.resultSource = "bye";
+        if (autoResult) {
+          Object.assign(updates, autoResult);
         } else {
           updates.status = "pending";
         }
