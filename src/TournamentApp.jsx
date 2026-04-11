@@ -573,35 +573,17 @@ function CollapsibleSection({
   defaultOpen = true,
   actions = null,
   className = "",
-  isOpen: controlledIsOpen,
-  onToggle,
   children,
 }) {
-  const [internalOpen, setInternalOpen] = useState(defaultOpen);
+  const [isOpen, setIsOpen] = useState(defaultOpen);
 
   useEffect(() => {
-    setInternalOpen(defaultOpen);
+    setIsOpen(defaultOpen);
   }, [defaultOpen]);
-
-  const isControlled = typeof controlledIsOpen === "boolean";
-  const isOpen = isControlled ? controlledIsOpen : internalOpen;
-
-  const handleToggle = () => {
-    if (isControlled) {
-      onToggle?.(!isOpen);
-      return;
-    }
-
-    setInternalOpen((prev) => {
-      const next = !prev;
-      onToggle?.(next);
-      return next;
-    });
-  };
 
   return (
     <div className={`collapsible-section ${className} ${isOpen ? "is-open" : "is-closed"}`.trim()}>
-      <button type="button" className="collapse-toggle" onClick={handleToggle}>
+      <button type="button" className="collapse-toggle" onClick={() => setIsOpen((prev) => !prev)}>
         <div className="collapse-toggle-left">
           <span className={`collapse-chevron ${isOpen ? "open" : ""}`}>⌄</span>
           <div className="collapse-title-wrap">
@@ -626,38 +608,20 @@ function RoundSection({
   subtitle,
   badge,
   defaultOpen = false,
-  isOpen: controlledIsOpen,
-  onToggle,
   children,
 }) {
-  const [internalOpen, setInternalOpen] = useState(defaultOpen);
+  const [isOpen, setIsOpen] = useState(defaultOpen);
 
   useEffect(() => {
-    setInternalOpen(defaultOpen);
+    setIsOpen(defaultOpen);
   }, [defaultOpen]);
-
-  const isControlled = typeof controlledIsOpen === "boolean";
-  const isOpen = isControlled ? controlledIsOpen : internalOpen;
-
-  const handleToggle = () => {
-    if (isControlled) {
-      onToggle?.(!isOpen);
-      return;
-    }
-
-    setInternalOpen((prev) => {
-      const next = !prev;
-      onToggle?.(next);
-      return next;
-    });
-  };
 
   return (
     <div className={`round-section ${isOpen ? "is-open" : "is-closed"}`}>
       <button
         type="button"
         className="round-section-toggle"
-        onClick={handleToggle}
+        onClick={() => setIsOpen((prev) => !prev)}
       >
         <div className="round-section-toggle-left">
           <span className={`round-section-chevron ${isOpen ? "open" : ""}`}>⌄</span>
@@ -1146,6 +1110,7 @@ function TournamentTree({
   onEditResult,
   onRestartMatch,
   onAbortLiveMatch,
+  tournamentId,
 }) {
   const groupMatches = useMemo(
     () => sortMatchesByMatchNumber(matches.filter((match) => match.group)),
@@ -1167,16 +1132,33 @@ function TournamentTree({
     [knockoutMatches],
   );
 
-  const firstOpenRoundIndex = useMemo(() => {
-    return groupedRounds.findIndex((roundBlock) =>
+  const [initialGroupPhaseOpen, setInitialGroupPhaseOpen] = useState(true);
+  const [initialGroupOpenMap, setInitialGroupOpenMap] = useState({});
+  const [initialRoundOpenMap, setInitialRoundOpenMap] = useState({});
+
+  useEffect(() => {
+    const groupsPhaseComplete =
+      groupTables.length > 0 && groupTables.every((group) => group.isComplete);
+
+    const nextGroupOpenMap = {};
+    for (const groupTable of groupTables) {
+      nextGroupOpenMap[groupTable.name] = !groupTable.isComplete;
+    }
+
+    const firstOpenRoundIndex = groupedRounds.findIndex((roundBlock) =>
       roundBlock.matches.some((match) => match.status !== "finished"),
     );
-  }, [groupedRounds]);
 
-  const isGroupsPhaseComplete = useMemo(() => {
-    if (!groupTables.length) return false;
-    return groupTables.every((group) => group.isComplete);
-  }, [groupTables]);
+    const nextRoundOpenMap = {};
+    groupedRounds.forEach((roundBlock, index) => {
+      nextRoundOpenMap[roundBlock.round] =
+        firstOpenRoundIndex !== -1 && index === firstOpenRoundIndex;
+    });
+
+    setInitialGroupPhaseOpen(!groupsPhaseComplete);
+    setInitialGroupOpenMap(nextGroupOpenMap);
+    setInitialRoundOpenMap(nextRoundOpenMap);
+  }, [tournamentId, groupTables, groupedRounds]);
 
   if (!matches?.length) return null;
 
@@ -1188,7 +1170,7 @@ function TournamentTree({
             title="Gruppenphase"
             subtitle="Alle Gruppenspiele mit aktueller Tabelle"
             badge={`${groupMatches.length} Spiele`}
-            isOpen={!isGroupsPhaseComplete}
+            defaultOpen={initialGroupPhaseOpen}
           >
             <div className="group-sections">
               {groupTables.map((groupTable) => (
@@ -1197,7 +1179,7 @@ function TournamentTree({
                     title={groupTable.name}
                     subtitle={`${groupTable.finishedMatches}/${groupTable.totalMatches} Spiele fertig`}
                     badge={groupTable.isComplete ? "Komplett" : "Laufend"}
-                    isOpen={!groupTable.isComplete}
+                    defaultOpen={initialGroupOpenMap[groupTable.name] ?? true}
                   >
                     <div className="group-block-layout">
                       <GroupStandingsTable
@@ -1233,17 +1215,11 @@ function TournamentTree({
           title={mode === "KO" ? "KO-Phase" : "Finalrunde"}
           subtitle="Runde für Runde im Turnierbaum"
           badge={`${groupedRounds.length} Runden`}
-          isOpen={true}
+          defaultOpen={true}
         >
           <div className="round-sections">
-            {groupedRounds.map((roundBlock, index) => {
+            {groupedRounds.map((roundBlock) => {
               const roundMatches = sortMatchesByMatchNumber(roundBlock.matches);
-              const roundComplete = roundMatches.every((match) => match.status === "finished");
-
-              const shouldBeOpen =
-                firstOpenRoundIndex === -1
-                  ? false
-                  : index === firstOpenRoundIndex;
 
               return (
                 <RoundSection
@@ -1251,7 +1227,7 @@ function TournamentTree({
                   title={`Runde ${roundBlock.round}`}
                   subtitle="Spiele dieser Runde"
                   badge={`${roundMatches.length} ${roundMatches.length === 1 ? "Spiel" : "Spiele"}`}
-                  isOpen={!roundComplete && shouldBeOpen}
+                  defaultOpen={initialRoundOpenMap[roundBlock.round] ?? false}
                 >
                   <div className="round-match-grid">
                     {roundMatches.map((match) => (
@@ -2327,17 +2303,18 @@ export default function TournamentApp() {
         <BoardOverview boards={boards} matches={matches} onReleaseBoard={handleReleaseBoard} />
 
         <TournamentTree
-          matches={matches}
-          groups={groups}
-          mode={mode}
-          matchMode={matchMode}
-          qualifiedPerGroup={qualifiers}
-          onStartMatch={handleStartMatch}
-          onGiveUpMatch={handleGiveUpMatch}
-          onEditResult={handleOpenEditResult}
-          onRestartMatch={handleRestartMatch}
-          onAbortLiveMatch={handleAbortLiveMatch}
-        />
+  matches={matches}
+  groups={groups}
+  mode={mode}
+  matchMode={matchMode}
+  qualifiedPerGroup={qualifiers}
+  onStartMatch={handleStartMatch}
+  onGiveUpMatch={handleGiveUpMatch}
+  onEditResult={handleOpenEditResult}
+  onRestartMatch={handleRestartMatch}
+  onAbortLiveMatch={handleAbortLiveMatch}
+  tournamentId={tournamentId}
+/>
 
         <FinalStandingsTable
           matches={matches}
