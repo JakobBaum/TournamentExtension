@@ -150,10 +150,11 @@ export class TournamentDB {
     };
   }
 
-  createMatchRef(ref) {
+  createMatchRef(ref, source = "winner") {
     return {
       type: "match",
       ref: Number(ref),
+      source,
     };
   }
 
@@ -182,6 +183,7 @@ export class TournamentDB {
       return JSON.stringify({
         type: "match",
         ref: Number(player.ref),
+        source: player.source || "winner",
       });
     }
 
@@ -229,6 +231,7 @@ export class TournamentDB {
       return {
         type: "match",
         ref: Number(player.ref),
+        source: player.source || "winner",
       };
     }
 
@@ -541,6 +544,14 @@ export class TournamentDB {
     );
   }
 
+  getDependentMatchesBySource(matches = [], sourceMatchNumber) {
+    return matches.filter(
+      (m) =>
+        String(m.player1?.ref) === String(sourceMatchNumber) ||
+        String(m.player2?.ref) === String(sourceMatchNumber),
+    );
+  }
+
   async getMatchById(tournamentId, matchId, providedMatches = null) {
     const matches = Array.isArray(providedMatches)
       ? providedMatches
@@ -554,11 +565,7 @@ export class TournamentDB {
       ? providedMatches
       : await this.getMatchesByTournamentId(tournamentId);
 
-    return matches.filter(
-      (m) =>
-        String(m.player1?.ref) === String(sourceMatchNumber) ||
-        String(m.player2?.ref) === String(sourceMatchNumber),
-    );
+    return this.getDependentMatchesBySource(matches, sourceMatchNumber);
   }
 
   async resetMatchChainFromMatchNumber(
@@ -617,14 +624,14 @@ export class TournamentDB {
         dependent.player1?.type === "match" &&
         String(dependent.player1.ref) === String(sourceMatchNumber)
       ) {
-        updates.player1 = this.createMatchRef(sourceMatchNumber);
+        updates.player1 = this.createMatchRef(sourceMatchNumber, dependent.player1?.source || "winner");
       }
 
       if (
         dependent.player2?.type === "match" &&
         String(dependent.player2.ref) === String(sourceMatchNumber)
       ) {
-        updates.player2 = this.createMatchRef(sourceMatchNumber);
+        updates.player2 = this.createMatchRef(sourceMatchNumber, dependent.player2?.source || "winner");
       }
 
       await updateDoc(this.tDoc(tournamentId, "matches", dependent.id), updates);
@@ -653,95 +660,97 @@ export class TournamentDB {
   }
 
   async propagateFromMatch(tournamentId, sourceMatch, providedMatches = null) {
-    if (!sourceMatch?.winner) return;
+    if (!sourceMatch?.winner && !sourceMatch?.loser) return;
 
     const matches = Array.isArray(providedMatches)
       ? providedMatches
       : await this.getMatchesByTournamentId(tournamentId);
 
-    const nextMatch = await this.findNextMatchForReference(
-      tournamentId,
-      sourceMatch.matchNumber,
-      matches,
-    );
+    const dependentMatches = this.getDependentMatchesBySource(matches, sourceMatch.matchNumber);
 
-    if (!nextMatch) return;
+    for (const nextMatch of dependentMatches) {
+      const updates = {};
 
-    const updates = {};
+      const resolveSourcePlayer = (slot) => {
+        if (slot?.type !== "match") return null;
+        if (String(slot.ref) !== String(sourceMatch.matchNumber)) return null;
 
-    if (
-      nextMatch.player1?.type === "match" &&
-      String(nextMatch.player1.ref) === String(sourceMatch.matchNumber)
-    ) {
-      updates.player1 = this.normalizePropagatedPlayer(sourceMatch.winner);
-    }
+        const sourceType = slot.source || "winner";
+        const sourcePlayer = sourceType === "loser" ? sourceMatch.loser : sourceMatch.winner;
+        return this.normalizePropagatedPlayer(sourcePlayer);
+      };
 
-    if (
-      nextMatch.player2?.type === "match" &&
-      String(nextMatch.player2.ref) === String(sourceMatch.matchNumber)
-    ) {
-      updates.player2 = this.normalizePropagatedPlayer(sourceMatch.winner);
-    }
+      const propagatedPlayer1 = resolveSourcePlayer(nextMatch.player1);
+      const propagatedPlayer2 = resolveSourcePlayer(nextMatch.player2);
 
-    const newPlayer1 = updates.player1 ?? nextMatch.player1;
-    const newPlayer2 = updates.player2 ?? nextMatch.player2;
+      if (propagatedPlayer1) {
+        updates.player1 = propagatedPlayer1;
+      }
 
-    const p1Real = this.isRealPlayer(newPlayer1);
-    const p2Real = this.isRealPlayer(newPlayer2);
-    const p1Bye = this.isBye(newPlayer1);
-    const p2Bye = this.isBye(newPlayer2);
+      if (propagatedPlayer2) {
+        updates.player2 = propagatedPlayer2;
+      }
 
-    if (p1Real && p2Bye) {
-      updates.winner = newPlayer1;
-      updates.loser = newPlayer2;
-      updates.status = "finished";
-      updates.finishedAt = new Date().toISOString();
-      updates.resultSource = "bye";
-    } else if (p2Real && p1Bye) {
-      updates.winner = newPlayer2;
-      updates.loser = newPlayer1;
-      updates.status = "finished";
-      updates.finishedAt = new Date().toISOString();
-      updates.resultSource = "bye";
-    } else if (p1Bye && p2Bye) {
-      updates.winner = this.createBye();
-      updates.loser = this.createBye();
-      updates.status = "finished";
-      updates.finishedAt = new Date().toISOString();
-      updates.resultSource = "bye";
-    } else if (p1Real && p2Real) {
-      updates.winner = null;
-      updates.loser = null;
-      updates.status = "pending";
-      updates.finishedAt = null;
-      updates.resultSource = null;
-      updates.scorePlayer1 = null;
-      updates.scorePlayer2 = null;
-      updates.finalPlayerStats = null;
-      updates.statsUpdatedAt = null;
-      updates.manuallyCorrectedAt = null;
-      updates.lobbyId = null;
-      updates.boardId = null;
-    }
+      const newPlayer1 = updates.player1 ?? nextMatch.player1;
+      const newPlayer2 = updates.player2 ?? nextMatch.player2;
 
-    if (!Object.keys(updates).length) return;
+      const p1Real = this.isRealPlayer(newPlayer1);
+      const p2Real = this.isRealPlayer(newPlayer2);
+      const p1Bye = this.isBye(newPlayer1);
+      const p2Bye = this.isBye(newPlayer2);
 
-    await updateDoc(this.tDoc(tournamentId, "matches", nextMatch.id), updates);
+      if (p1Real && p2Bye) {
+        updates.winner = newPlayer1;
+        updates.loser = newPlayer2;
+        updates.status = "finished";
+        updates.finishedAt = new Date().toISOString();
+        updates.resultSource = "bye";
+      } else if (p2Real && p1Bye) {
+        updates.winner = newPlayer2;
+        updates.loser = newPlayer1;
+        updates.status = "finished";
+        updates.finishedAt = new Date().toISOString();
+        updates.resultSource = "bye";
+      } else if (p1Bye && p2Bye) {
+        updates.winner = this.createBye();
+        updates.loser = this.createBye();
+        updates.status = "finished";
+        updates.finishedAt = new Date().toISOString();
+        updates.resultSource = "bye";
+      } else if (p1Real && p2Real) {
+        updates.winner = null;
+        updates.loser = null;
+        updates.status = "pending";
+        updates.finishedAt = null;
+        updates.resultSource = null;
+        updates.scorePlayer1 = null;
+        updates.scorePlayer2 = null;
+        updates.finalPlayerStats = null;
+        updates.statsUpdatedAt = null;
+        updates.manuallyCorrectedAt = null;
+        updates.lobbyId = null;
+        updates.boardId = null;
+      }
 
-    const updatedNextMatch = {
-      ...nextMatch,
-      ...updates,
-    };
+      if (!Object.keys(updates).length) continue;
 
-    if (updatedNextMatch.winner) {
-      await this.propagateFromMatch(tournamentId, updatedNextMatch, matches);
-    } else {
-      await this.resetMatchChainFromMatchNumber(
-        tournamentId,
-        updatedNextMatch.matchNumber,
-        matches,
-        new Set(),
-      );
+      await updateDoc(this.tDoc(tournamentId, "matches", nextMatch.id), updates);
+
+      const updatedNextMatch = {
+        ...nextMatch,
+        ...updates,
+      };
+
+      if (updatedNextMatch.winner || updatedNextMatch.loser) {
+        await this.propagateFromMatch(tournamentId, updatedNextMatch, matches);
+      } else {
+        await this.resetMatchChainFromMatchNumber(
+          tournamentId,
+          updatedNextMatch.matchNumber,
+          matches,
+          new Set(),
+        );
+      }
     }
   }
 
@@ -1034,7 +1043,15 @@ export class TournamentDB {
       }
 
       if (typeof input === "string" && !isNaN(input)) {
-        return this.createMatchRef(input);
+        return this.createMatchRef(input, "winner");
+      }
+
+      if (typeof input === "object" && input?.type === "match") {
+        return this.createMatchRef(input.ref, input.source || "winner");
+      }
+
+      if (typeof input === "object" && input?.type === "qualifier") {
+        return this.createQualifierPlaceholder(input.qualifierRef || input.ref);
       }
 
       if (typeof input === "string" && /^G[A-Z]-\d+$/.test(input)) {
@@ -1042,12 +1059,18 @@ export class TournamentDB {
       }
 
       const name = typeof input === "object" ? input.name : String(input).trim();
-      const found = playerMap.get(name);
+      const normalizedName = typeof name === "string" ? name.trim() : "";
+
+      if (!normalizedName) {
+        return null;
+      }
+
+      const found = playerMap.get(normalizedName);
 
       return {
         type: "player",
         id: found?.id || null,
-        name,
+        name: normalizedName,
         groupId: found?.groupId || null,
         ...(input?.qualifierRef ? { qualifierRef: input.qualifierRef } : {}),
       };
@@ -1065,7 +1088,14 @@ export class TournamentDB {
           status: match.status || "pending",
           boardId: null,
           lobbyId: null,
-          loser: null,
+          loser: buildPlayer(match.loser),
+          bracketType: match.bracketType || "main",
+          placementRangeStart: match.placementRangeStart ?? null,
+          placementRangeEnd: match.placementRangeEnd ?? null,
+          winnerPlace: match.winnerPlace ?? null,
+          loserPlace: match.loserPlace ?? null,
+          displayRoundName: match.displayRoundName || null,
+          placementGroupLabel: match.placementGroupLabel || null,
           startedAt: null,
           finishedAt: null,
           scorePlayer1: null,

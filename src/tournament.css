@@ -1132,3 +1132,115 @@
 .final-standings-stat.is-highlighted {
   background: rgba(255,255,255,0.03);
 }
+
+.round-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.round-section {
+  border: 1px solid rgba(255,255,255,0.06);
+  background: rgba(255,255,255,0.03);
+  border-radius: 14px;
+  padding: 12px;
+}
+
+.round-section-toggle {
+  width: 100%;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+}
+
+.round-section-toggle:hover {
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+.round-section-toggle-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.round-section-toggle-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.round-section-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.round-section-subtitle {
+  color: #8ea2d0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.round-section-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.06);
+  color: #dce7ff;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+.round-section-chevron {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.05);
+  color: #dce7ff;
+  font-size: 12px;
+  transition: transform 0.18s ease;
+  flex-shrink: 0;
+}
+
+.round-section.is-closed .round-section-chevron {
+  transform: rotate(-90deg);
+}
+
+.round-section-chevron.open {
+  transform: rotate(0deg);
+}
+
+.round-section-content {
+  margin-top: 14px;
+}
+
+.round-match-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .round-match-grid {
+    grid-template-columns: 1fr;
+  }
+}

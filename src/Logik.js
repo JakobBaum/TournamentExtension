@@ -5,20 +5,351 @@ export class Logik {
     this.db = new TournamentDB();
   }
 
-  generateTournament(players, playersPerGroup = 4, qualifiedPerGroup = 2) {
+  createBye() {
+    return {
+      type: "bye",
+      name: "Freilos",
+    };
+  }
+
+  createWinnerRef(ref) {
+    return {
+      type: "match",
+      ref: Number(ref),
+      source: "winner",
+    };
+  }
+
+  createLoserRef(ref) {
+    return {
+      type: "match",
+      ref: Number(ref),
+      source: "loser",
+    };
+  }
+
+  createQualifierRef(ref) {
+    return {
+      type: "qualifier",
+      ref,
+      qualifierRef: ref,
+    };
+  }
+
+  nextPowerOfTwo(n) {
+    return Math.pow(2, Math.ceil(Math.log2(n)));
+  }
+
+  shuffleArray(arr) {
+    return [...arr].sort(() => Math.random() - 0.5);
+  }
+
+  buildPlacementLabel(startPlace, endPlace, isFinal = false) {
+    if (startPlace === 1 && endPlace === 2) return "Finale";
+    if (startPlace === 3 && endPlace === 4) return "Spiel um Platz 3";
+    if (startPlace === endPlace) return `Platz ${startPlace}`;
+    if (endPlace - startPlace === 1 && isFinal) return `Spiel um Platz ${startPlace}`;
+    return `Plätze ${startPlace}-${endPlace}`;
+  }
+
+  buildPlacementTree(slots, startPlace, endPlace, options = {}) {
+    const {
+      startRound = 1,
+      startMatchNumber = 1,
+      bracketType = "placement",
+      placementGroupLabel = null,
+    } = options;
+
+    const participantCount = endPlace - startPlace + 1;
+
+    if (!Array.isArray(slots) || slots.length !== participantCount) {
+      throw new Error("Ungültige Platzierungsbaum-Konfiguration");
+    }
+
+    if (participantCount < 2 || (participantCount & (participantCount - 1)) !== 0) {
+      throw new Error("Platzierungsbaum benötigt eine Zweierpotenz");
+    }
+
+    let matchNumber = startMatchNumber;
+    const matches = [];
+
+    const buildNode = (nodeSlots, rangeStart, rangeEnd, round) => {
+      const size = rangeEnd - rangeStart + 1;
+
+      if (size === 2) {
+        const [p1, p2] = nodeSlots;
+        const p1Bye = p1?.type === "bye";
+        const p2Bye = p2?.type === "bye";
+
+        let winner = null;
+        let loser = null;
+        let status = "pending";
+
+        if (p1Bye && !p2Bye) {
+          winner = p2;
+          loser = p1;
+          status = "finished";
+        } else if (!p1Bye && p2Bye) {
+          winner = p1;
+          loser = p2;
+          status = "finished";
+        } else if (p1Bye && p2Bye) {
+          winner = this.createBye();
+          loser = this.createBye();
+          status = "finished";
+        }
+
+        const match = {
+          matchNumber: String(matchNumber++),
+          round,
+          group: null,
+          player1: p1,
+          player2: p2,
+          winner,
+          loser,
+          status,
+          boardId: null,
+          bracketType,
+          placementRangeStart: rangeStart,
+          placementRangeEnd: rangeEnd,
+          winnerPlace: rangeStart,
+          loserPlace: rangeEnd,
+          displayRoundName: this.buildPlacementLabel(rangeStart, rangeEnd, true),
+          placementGroupLabel,
+        };
+
+        matches.push(match);
+        return match;
+      }
+
+      const firstRoundMatches = [];
+
+      for (let i = 0; i < nodeSlots.length; i += 2) {
+        const p1 = nodeSlots[i];
+        const p2 = nodeSlots[i + 1];
+        const p1Bye = p1?.type === "bye";
+        const p2Bye = p2?.type === "bye";
+
+        let winner = null;
+        let loser = null;
+        let status = "pending";
+
+        if (p1Bye && !p2Bye) {
+          winner = p2;
+          loser = p1;
+          status = "finished";
+        } else if (!p1Bye && p2Bye) {
+          winner = p1;
+          loser = p2;
+          status = "finished";
+        } else if (p1Bye && p2Bye) {
+          winner = this.createBye();
+          loser = this.createBye();
+          status = "finished";
+        }
+
+        const match = {
+          matchNumber: String(matchNumber++),
+          round,
+          group: null,
+          player1: p1,
+          player2: p2,
+          winner,
+          loser,
+          status,
+          boardId: null,
+          bracketType,
+          placementRangeStart: rangeStart,
+          placementRangeEnd: rangeEnd,
+          winnerPlace: null,
+          loserPlace: null,
+          displayRoundName: this.buildPlacementLabel(rangeStart, rangeEnd),
+          placementGroupLabel,
+        };
+
+        matches.push(match);
+        firstRoundMatches.push(match);
+      }
+
+      const halfSize = size / 2;
+      const upperSlots = firstRoundMatches.map((match) => this.createWinnerRef(match.matchNumber));
+      const lowerSlots = firstRoundMatches.map((match) => this.createLoserRef(match.matchNumber));
+
+      buildNode(upperSlots, rangeStart, rangeStart + halfSize - 1, round + 1);
+      buildNode(lowerSlots, rangeStart + halfSize, rangeEnd, round + 1);
+
+      return null;
+    };
+
+    buildNode(slots, startPlace, endPlace, startRound);
+
+    return {
+      matches,
+      nextMatchNumber: matchNumber,
+    };
+  }
+
+  buildMainBracket(slots, options = {}) {
+    const {
+      startRound = 1,
+      startMatchNumber = 1,
+      playAllPlaces = false,
+    } = options;
+
+    if (!Array.isArray(slots) || slots.length < 2) {
+      throw new Error("Mindestens 2 Slots für KO-Baum nötig");
+    }
+
+    const bracketSize = slots.length;
+    if ((bracketSize & (bracketSize - 1)) !== 0) {
+      throw new Error("KO-Baum benötigt eine Zweierpotenz");
+    }
+
+    let matchNumber = startMatchNumber;
+    const matches = [];
+
+    const buildNode = (nodeSlots, rangeStart, rangeEnd, round) => {
+      const size = rangeEnd - rangeStart + 1;
+
+      if (size === 2) {
+        const [p1, p2] = nodeSlots;
+        const p1Bye = p1?.type === "bye";
+        const p2Bye = p2?.type === "bye";
+
+        let winner = null;
+        let loser = null;
+        let status = "pending";
+
+        if (p1Bye && !p2Bye) {
+          winner = p2;
+          loser = p1;
+          status = "finished";
+        } else if (!p1Bye && p2Bye) {
+          winner = p1;
+          loser = p2;
+          status = "finished";
+        } else if (p1Bye && p2Bye) {
+          winner = this.createBye();
+          loser = this.createBye();
+          status = "finished";
+        }
+
+        const match = {
+          matchNumber: String(matchNumber++),
+          round,
+          group: null,
+          player1: p1,
+          player2: p2,
+          winner,
+          loser,
+          status,
+          boardId: null,
+          bracketType: "main",
+          placementRangeStart: rangeStart,
+          placementRangeEnd: rangeEnd,
+          winnerPlace: rangeStart,
+          loserPlace: rangeEnd,
+          displayRoundName: this.buildPlacementLabel(rangeStart, rangeEnd, true),
+          placementGroupLabel: null,
+        };
+
+        matches.push(match);
+        return match;
+      }
+
+      const firstRoundMatches = [];
+
+      for (let i = 0; i < nodeSlots.length; i += 2) {
+        const p1 = nodeSlots[i];
+        const p2 = nodeSlots[i + 1];
+        const p1Bye = p1?.type === "bye";
+        const p2Bye = p2?.type === "bye";
+
+        let winner = null;
+        let loser = null;
+        let status = "pending";
+
+        if (p1Bye && !p2Bye) {
+          winner = p2;
+          loser = p1;
+          status = "finished";
+        } else if (!p1Bye && p2Bye) {
+          winner = p1;
+          loser = p2;
+          status = "finished";
+        } else if (p1Bye && p2Bye) {
+          winner = this.createBye();
+          loser = this.createBye();
+          status = "finished";
+        }
+
+        const match = {
+          matchNumber: String(matchNumber++),
+          round,
+          group: null,
+          player1: p1,
+          player2: p2,
+          winner,
+          loser,
+          status,
+          boardId: null,
+          bracketType: "main",
+          placementRangeStart: rangeStart,
+          placementRangeEnd: rangeEnd,
+          winnerPlace: null,
+          loserPlace: null,
+          displayRoundName: this.buildPlacementLabel(rangeStart, rangeEnd),
+          placementGroupLabel: null,
+        };
+
+        matches.push(match);
+        firstRoundMatches.push(match);
+      }
+
+      const halfSize = size / 2;
+      const winnerSlots = firstRoundMatches.map((match) => this.createWinnerRef(match.matchNumber));
+      buildNode(winnerSlots, rangeStart, rangeStart + halfSize - 1, round + 1);
+
+      if (playAllPlaces) {
+        const loserSlots = firstRoundMatches.map((match) => this.createLoserRef(match.matchNumber));
+        const placementResult = this.buildPlacementTree(
+          loserSlots,
+          rangeStart + halfSize,
+          rangeEnd,
+          {
+            startRound: round + 1,
+            startMatchNumber: matchNumber,
+            bracketType: "placement",
+            placementGroupLabel: this.buildPlacementLabel(rangeStart + halfSize, rangeEnd),
+          },
+        );
+
+        matches.push(...placementResult.matches);
+        matchNumber = placementResult.nextMatchNumber;
+      }
+
+      return null;
+    };
+
+    buildNode(slots, 1, bracketSize, startRound);
+
+    return {
+      matches,
+      nextMatchNumber: matchNumber,
+    };
+  }
+
+  generateTournament(players, playersPerGroup = 4, qualifiedPerGroup = 2, options = {}) {
     if (!Array.isArray(players) || players.length < 2) {
       throw new Error("Mindestens 2 Spieler nötig");
     }
 
-    const shuffled = [...players].sort(() => Math.random() - 0.5);
+    const shuffled = this.shuffleArray(players);
 
     const groups = [];
     const matches = [];
     const numGroups = Math.ceil(shuffled.length / playersPerGroup);
 
-    // =========================
-    // 👥 GRUPPEN
-    // =========================
     for (let g = 0; g < numGroups; g++) {
       const start = g * playersPerGroup;
       const end = start + playersPerGroup;
@@ -43,8 +374,16 @@ export class Logik {
             player1: groupPlayers[i],
             player2: groupPlayers[j],
             winner: null,
+            loser: null,
             status: "pending",
             boardId: null,
+            bracketType: "group",
+            placementRangeStart: null,
+            placementRangeEnd: null,
+            winnerPlace: null,
+            loserPlace: null,
+            displayRoundName: groupName,
+            placementGroupLabel: null,
           });
 
           groupMatchCounter++;
@@ -52,9 +391,6 @@ export class Logik {
       }
     }
 
-    // =========================
-    // 🏆 KO-QUALIFIER ERSTELLEN
-    // =========================
     const qualifierRefs = [];
 
     for (let g = 0; g < groups.length; g++) {
@@ -63,7 +399,7 @@ export class Logik {
       const actualQualifiers = Math.min(qualifiedPerGroup, playerCountInGroup);
 
       for (let q = 1; q <= actualQualifiers; q++) {
-        qualifierRefs.push(`G${groupLetter}-${q}`);
+        qualifierRefs.push(this.createQualifierRef(`G${groupLetter}-${q}`));
       }
     }
 
@@ -75,110 +411,19 @@ export class Logik {
       };
     }
 
-    // =========================
-    // 🔧 KO-SLOTS ROBUST AUFBAUEN
-    // =========================
-    // WICHTIG:
-    // Statt harter Kreuzpaarung Gruppe A/B, bei der bei Restgruppen
-    // Qualifier verloren gehen konnten, nehmen wir ALLE Qualifier mit.
-    let koSlots = [...qualifierRefs];
+    const bracketSize = this.nextPowerOfTwo(qualifierRefs.length);
+    const koSlots = this.shuffleArray([
+      ...qualifierRefs,
+      ...Array.from({ length: bracketSize - qualifierRefs.length }, () => this.createBye()),
+    ]);
 
-    const nextPowerOfTwo = (n) => Math.pow(2, Math.ceil(Math.log2(n)));
-    const bracketSize = nextPowerOfTwo(koSlots.length);
+    const bracket = this.buildMainBracket(koSlots, {
+      startRound: 2,
+      startMatchNumber: 1,
+      playAllPlaces: !!options.playAllPlaces,
+    });
 
-    while (koSlots.length < bracketSize) {
-      koSlots.push("__BYE__");
-    }
-
-    // Zufällig mischen, damit Freilose/Slots fair verteilt sind
-    koSlots = [...koSlots].sort(() => Math.random() - 0.5);
-
-    // =========================
-    // 🎯 ERSTE KO-RUNDE
-    // =========================
-    let koMatchNumber = 1;
-    let currentRefs = [];
-    let round = 2;
-
-    for (let i = 0; i < koSlots.length; i += 2) {
-      const p1 = koSlots[i];
-      const p2 = koSlots[i + 1];
-
-      let winner = null;
-      let status = "pending";
-
-      if (p1 === "__BYE__" && p2 !== "__BYE__") {
-        winner = p2;
-        status = "finished";
-      } else if (p2 === "__BYE__" && p1 !== "__BYE__") {
-        winner = p1;
-        status = "finished";
-      } else if (p1 === "__BYE__" && p2 === "__BYE__") {
-        continue;
-      }
-
-      matches.push({
-        matchNumber: String(koMatchNumber),
-        round,
-        group: null,
-        player1: p1,
-        player2: p2,
-        winner,
-        status,
-        boardId: null,
-      });
-
-      currentRefs.push(String(koMatchNumber));
-      koMatchNumber++;
-    }
-
-    round++;
-
-    // =========================
-    // 🎯 WEITERE KO-RUNDEN
-    // =========================
-    while (currentRefs.length > 1) {
-      const nextRefs = [];
-
-      if (currentRefs.length % 2 !== 0) {
-        currentRefs.push("__BYE__");
-      }
-
-      for (let i = 0; i < currentRefs.length; i += 2) {
-        const ref1 = currentRefs[i];
-        const ref2 = currentRefs[i + 1];
-
-        if (ref1 === "__BYE__" && ref2 === "__BYE__") continue;
-
-        let winner = null;
-        let status = "pending";
-
-        if (ref1 === "__BYE__" && ref2 !== "__BYE__") {
-          winner = ref2;
-          status = "finished";
-        } else if (ref2 === "__BYE__" && ref1 !== "__BYE__") {
-          winner = ref1;
-          status = "finished";
-        }
-
-        matches.push({
-          matchNumber: String(koMatchNumber),
-          round,
-          group: null,
-          player1: ref1,
-          player2: ref2,
-          winner,
-          status,
-          boardId: null,
-        });
-
-        nextRefs.push(String(koMatchNumber));
-        koMatchNumber++;
-      }
-
-      currentRefs = nextRefs;
-      round++;
-    }
+    matches.push(...bracket.matches);
 
     return {
       type: "group_ko",
@@ -187,136 +432,27 @@ export class Logik {
     };
   }
 
-  generateKOTournament(players) {
+  generateKOTournament(players, options = {}) {
     if (!Array.isArray(players) || players.length < 2) {
       throw new Error("Mindestens 2 Spieler nötig");
     }
 
-    const matches = [];
-    const rounds = [];
-
-    const nextPowerOfTwo = (n) => Math.pow(2, Math.ceil(Math.log2(n)));
-    const bracketSize = nextPowerOfTwo(players.length);
+    const bracketSize = this.nextPowerOfTwo(players.length);
     const byes = bracketSize - players.length;
-
-    const createBye = () => ({
-      type: "bye",
-      name: "Freilos",
-    });
-
-    const shuffleArray = (arr) => [...arr].sort(() => Math.random() - 0.5);
-
-    // Spieler mischen
-    const shuffledPlayers = shuffleArray(players);
-
-    // Spieler + Freilose gemeinsam mischen, damit die Freilose zufällig verteilt sind
-    const firstRoundPlayers = shuffleArray([
-      ...shuffledPlayers,
-      ...Array.from({ length: byes }, () => createBye()),
+    const firstRoundPlayers = this.shuffleArray([
+      ...this.shuffleArray(players),
+      ...Array.from({ length: byes }, () => this.createBye()),
     ]);
 
-    let matchNumber = 1;
-    const round1 = [];
-
-    for (let i = 0; i < firstRoundPlayers.length; i += 2) {
-      const p1 = firstRoundPlayers[i];
-      const p2 = firstRoundPlayers[i + 1];
-
-      const p1IsBye = p1?.type === "bye";
-      const p2IsBye = p2?.type === "bye";
-
-      let winner = null;
-      let status = "pending";
-
-      if (p1IsBye && !p2IsBye) {
-        winner = p2;
-        status = "finished";
-      } else if (!p1IsBye && p2IsBye) {
-        winner = p1;
-        status = "finished";
-      } else if (p1IsBye && p2IsBye) {
-        winner = createBye();
-        status = "finished";
-      }
-
-      const match = {
-        matchNumber: String(matchNumber),
-        round: 1,
-        group: null,
-        player1: p1,
-        player2: p2,
-        winner,
-        status,
-        boardId: null,
-      };
-
-      round1.push(match);
-      matches.push(match);
-      matchNumber++;
-    }
-
-    rounds.push(round1);
-
-    let currentRound = round1;
-    let round = 2;
-
-    while (currentRound.length > 1) {
-      const nextRound = [];
-
-      if (currentRound.length % 2 !== 0) {
-        currentRound.push({
-          matchNumber: "__BYE_MATCH__",
-          winner: createBye(),
-        });
-      }
-
-      for (let i = 0; i < currentRound.length; i += 2) {
-        const m1 = currentRound[i];
-        const m2 = currentRound[i + 1];
-
-        if (!m1 || !m2) continue;
-
-        let player1 = String(m1.matchNumber);
-        let player2 = String(m2.matchNumber);
-
-        let winner = null;
-        let status = "pending";
-
-        if (m1.matchNumber === "__BYE_MATCH__" && m2.matchNumber !== "__BYE_MATCH__") {
-          player1 = createBye();
-          player2 = String(m2.matchNumber);
-        } else if (m2.matchNumber === "__BYE_MATCH__" && m1.matchNumber !== "__BYE_MATCH__") {
-          player1 = String(m1.matchNumber);
-          player2 = createBye();
-        } else if (m1.matchNumber === "__BYE_MATCH__" && m2.matchNumber === "__BYE_MATCH__") {
-          player1 = createBye();
-          player2 = createBye();
-        }
-
-        const match = {
-          matchNumber: String(matchNumber),
-          round,
-          group: null,
-          player1,
-          player2,
-          winner,
-          status,
-          boardId: null,
-        };
-
-        nextRound.push(match);
-        matches.push(match);
-        matchNumber++;
-      }
-
-      rounds.push(nextRound);
-      currentRound = nextRound;
-      round++;
-    }
+    const bracket = this.buildMainBracket(firstRoundPlayers, {
+      startRound: 1,
+      startMatchNumber: 1,
+      playAllPlaces: !!options.playAllPlaces,
+    });
 
     return {
       type: "ko",
-      matches,
+      matches: bracket.matches,
     };
   }
 
@@ -327,43 +463,29 @@ export class Logik {
     boards,
     playersPerGroup,
     qualifiedPerGroup,
+    settings = {},
   ) {
-    // 1️⃣ Turnier erstellen
     let code = Math.random().toString(36).substring(2, 8);
-    const tournamentId = await this.db.createTournament(tournamentName, code, type);
+    const tournamentId = await this.db.createTournament(tournamentName, code, type, settings);
 
     let data = {};
     let playersWithIds = [];
     let groups = [];
 
-    // 2️⃣ Struktur generieren
     if (type == "KO") {
       playersWithIds = await this.db.createPlayers(tournamentId, players);
-
-      await new Promise((r) => setTimeout(r, 0)); // flush event loop
-
-      data = this.generateKOTournament(playersWithIds);
+      await new Promise((r) => setTimeout(r, 0));
+      data = this.generateKOTournament(playersWithIds, settings);
     } else {
-      // 1. Gruppen erstmal aus Namen erzeugen
-      const previewData = this.generateTournament(players, playersPerGroup, qualifiedPerGroup);
-
-      // 2. Gruppen speichern
+      const previewData = this.generateTournament(players, playersPerGroup, qualifiedPerGroup, settings);
       groups = await this.db.createGroups(tournamentId, previewData.groups);
-
-      // 3. Spieler mit IDs speichern
       playersWithIds = await this.db.createPlayersGroups(tournamentId, groups);
-
-      // 4. Jetzt die Gruppenphase NEU mit Spielerobjekten + IDs erzeugen
-      data = this.generateTournament(playersWithIds, playersPerGroup, qualifiedPerGroup);
+      data = this.generateTournament(playersWithIds, playersPerGroup, qualifiedPerGroup, settings);
     }
 
-    // 5️⃣ Matches speichern
     await this.db.createMatches(tournamentId, data.matches, playersWithIds);
-
-    // 5.1️⃣ Freilose und direkte Gewinner automatisch weitertragen
     await this.db.autoAdvanceExistingWinners(tournamentId);
 
-    // 6️⃣ Boards hinzufügen
     if (boards) {
       await this.db.addBoards(tournamentId, boards);
     }

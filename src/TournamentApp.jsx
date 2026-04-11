@@ -31,8 +31,8 @@ const BULL_OFF_OPTIONS = ["Off", "Normal", "Official"];
 const MATCH_MODE_OPTIONS = ["Legs", "Sets"];
 const GROUP_SIZE_OPTIONS = [3, 4, 5, 6, 8, 10, 12, 24, 32];
 const QUALIFIER_OPTIONS = [1, 2, 4, 8, 16, 32];
-const LEGS_OPTIONS = [1,2, 3,4, 5,6, 7,8, 9,10, 11];
-const SETS_OPTIONS = [2, 3,4, 5,6, 7];
+const LEGS_OPTIONS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+const SETS_OPTIONS = [2, 3, 4, 5, 6, 7];
 const LEGS_OF_SET_OPTIONS = [1, 3, 5];
 /*
 const DEFAULT_PLAYERS = [
@@ -97,7 +97,7 @@ const DEFAULT_PLAYERS = [
   "Frank",
   "Gabi",
   "Hans",
-  "Ingrid"
+  "Ingrid",
 ];
 const activeMatchWatchers = new Set();
 const cancelledMatchWatchers = new Set();
@@ -551,16 +551,16 @@ async function watchMatchUntilFinished({
 
       stopWatching();
     } catch (error) {
-  console.error("watchMatchUntilFinished error", error);
+      console.error("watchMatchUntilFinished error", error);
 
-  if (error?.code === "TOKEN_REFRESH_REQUIRED") {
-    alert("Dein Autodarts-Login ist abgelaufen oder ungültig. Bitte lade die Seite neu.");
-    stopWatching();
-    return;
-  }
+      if (error?.code === "TOKEN_REFRESH_REQUIRED") {
+        alert("Dein Autodarts-Login ist abgelaufen oder ungültig. Bitte lade die Seite neu.");
+        stopWatching();
+        return;
+      }
 
-  setTimeout(tick, intervalMs);
-}
+      setTimeout(tick, intervalMs);
+    }
   };
 
   tick();
@@ -573,13 +573,35 @@ function CollapsibleSection({
   defaultOpen = true,
   actions = null,
   className = "",
+  isOpen: controlledIsOpen,
+  onToggle,
   children,
 }) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const [internalOpen, setInternalOpen] = useState(defaultOpen);
+
+  useEffect(() => {
+    setInternalOpen(defaultOpen);
+  }, [defaultOpen]);
+
+  const isControlled = typeof controlledIsOpen === "boolean";
+  const isOpen = isControlled ? controlledIsOpen : internalOpen;
+
+  const handleToggle = () => {
+    if (isControlled) {
+      onToggle?.(!isOpen);
+      return;
+    }
+
+    setInternalOpen((prev) => {
+      const next = !prev;
+      onToggle?.(next);
+      return next;
+    });
+  };
 
   return (
     <div className={`collapsible-section ${className} ${isOpen ? "is-open" : "is-closed"}`.trim()}>
-      <button type="button" className="collapse-toggle" onClick={() => setIsOpen((prev) => !prev)}>
+      <button type="button" className="collapse-toggle" onClick={handleToggle}>
         <div className="collapse-toggle-left">
           <span className={`collapse-chevron ${isOpen ? "open" : ""}`}>⌄</span>
           <div className="collapse-title-wrap">
@@ -595,6 +617,62 @@ function CollapsibleSection({
       </button>
 
       {isOpen && <div className="collapsible-content">{children}</div>}
+    </div>
+  );
+}
+
+function RoundSection({
+  title,
+  subtitle,
+  badge,
+  defaultOpen = false,
+  isOpen: controlledIsOpen,
+  onToggle,
+  children,
+}) {
+  const [internalOpen, setInternalOpen] = useState(defaultOpen);
+
+  useEffect(() => {
+    setInternalOpen(defaultOpen);
+  }, [defaultOpen]);
+
+  const isControlled = typeof controlledIsOpen === "boolean";
+  const isOpen = isControlled ? controlledIsOpen : internalOpen;
+
+  const handleToggle = () => {
+    if (isControlled) {
+      onToggle?.(!isOpen);
+      return;
+    }
+
+    setInternalOpen((prev) => {
+      const next = !prev;
+      onToggle?.(next);
+      return next;
+    });
+  };
+
+  return (
+    <div className={`round-section ${isOpen ? "is-open" : "is-closed"}`}>
+      <button
+        type="button"
+        className="round-section-toggle"
+        onClick={handleToggle}
+      >
+        <div className="round-section-toggle-left">
+          <span className={`round-section-chevron ${isOpen ? "open" : ""}`}>⌄</span>
+          <div className="round-section-title-wrap">
+            <strong>{title}</strong>
+            {subtitle ? <span className="round-section-subtitle">{subtitle}</span> : null}
+          </div>
+        </div>
+
+        <div className="round-section-toggle-right">
+          {badge ? <span className="round-section-badge">{badge}</span> : null}
+        </div>
+      </button>
+
+      {isOpen ? <div className="round-section-content">{children}</div> : null}
     </div>
   );
 }
@@ -665,7 +743,11 @@ function MatchPlayerRow({ match, slot, matchMode, onGiveUpMatch }) {
       <div className="player-row-actions">
         {score !== null && <span className="player-score">{score}</span>}
         {canGiveUp(match) && (
-          <button type="button" className="btn btn--danger btn--xs" onClick={() => onGiveUpMatch(match, slot)}>
+          <button
+            type="button"
+            className="btn btn--danger btn--xs"
+            onClick={() => onGiveUpMatch(match, slot)}
+          >
             Aufgeben
           </button>
         )}
@@ -692,7 +774,8 @@ function MatchCard({
       <div className="match-head">
         <div className="match-title-stack">
           <span className="match-number">
-            {labelPrefix ? `${labelPrefix} ${match.matchNumber}` : match.matchNumber}
+            {match.displayRoundName ||
+              (labelPrefix ? `${labelPrefix} ${match.matchNumber}` : match.matchNumber)}
           </span>
           {match.group && <span className="match-subline">{match.group}</span>}
         </div>
@@ -724,7 +807,10 @@ function MatchCard({
 
       <div className="match-card-actions">
         {canStartMatch(match) && (
-          <button className="btn btn--primary btn--compact btn--full" onClick={() => onStartMatch(match)}>
+          <button
+            className="btn btn--primary btn--compact btn--full"
+            onClick={() => onStartMatch(match)}
+          >
             Starten
           </button>
         )}
@@ -741,7 +827,10 @@ function MatchCard({
               Spiel öffnen
             </button>
 
-            <button className="btn btn--secondary btn--compact" onClick={() => onAbortLiveMatch(match)}>
+            <button
+              className="btn btn--secondary btn--compact"
+              onClick={() => onAbortLiveMatch(match)}
+            >
               Abbrechen
             </button>
           </>
@@ -869,10 +958,96 @@ function OverviewStats({ matches, boards, playersCount, mode }) {
   );
 }
 
+function buildFinalPlacements(matches = [], players = []) {
+  const placements = new Map();
+
+  for (const match of matches) {
+    if (match?.status !== "finished") continue;
+
+    if (
+      typeof match?.winnerPlace === "number" &&
+      match?.winner?.type === "player" &&
+      match?.winner?.name
+    ) {
+      placements.set(String(match.winner.name).trim().toLowerCase(), match.winnerPlace);
+    }
+
+    if (
+      typeof match?.loserPlace === "number" &&
+      match?.loser?.type === "player" &&
+      match?.loser?.name
+    ) {
+      placements.set(String(match.loser.name).trim().toLowerCase(), match.loserPlace);
+    }
+  }
+
+  const sortedByStats = sortPlayersForFinalTable(players);
+  const statsOrderMap = new Map(
+    sortedByStats.map((player, index) => [
+      String(player.name || "")
+        .trim()
+        .toLowerCase(),
+      index,
+    ]),
+  );
+
+  return [...players]
+    .map((player) => ({
+      ...player,
+      finalPlace:
+        placements.get(
+          String(player.name || "")
+            .trim()
+            .toLowerCase(),
+        ) ?? null,
+    }))
+    .sort((a, b) => {
+      const aPlaced = typeof a.finalPlace === "number";
+      const bPlaced = typeof b.finalPlace === "number";
+
+      if (aPlaced && bPlaced) return a.finalPlace - b.finalPlace;
+      if (aPlaced) return -1;
+      if (bPlaced) return 1;
+
+      const aOrder =
+        statsOrderMap.get(
+          String(a.name || "")
+            .trim()
+            .toLowerCase(),
+        ) ?? Number.MAX_SAFE_INTEGER;
+      const bOrder =
+        statsOrderMap.get(
+          String(b.name || "")
+            .trim()
+            .toLowerCase(),
+        ) ?? Number.MAX_SAFE_INTEGER;
+      return aOrder - bOrder;
+    });
+}
+
 function FinalStandingsTable({ matches, players, tournamentName }) {
   const tournamentFinished = useMemo(() => isTournamentFinished(matches), [matches]);
 
-  const sortedPlayers = useMemo(() => sortPlayersForFinalTable(players), [players]);
+  const hasRealPlacements = useMemo(
+    () =>
+      matches.some(
+        (match) =>
+          match?.status === "finished" &&
+          (typeof match?.winnerPlace === "number" || typeof match?.loserPlace === "number"),
+      ),
+    [matches],
+  );
+
+  const sortedPlayers = useMemo(() => {
+    if (hasRealPlacements) {
+      return buildFinalPlacements(matches, players);
+    }
+
+    return sortPlayersForFinalTable(players).map((player, index) => ({
+      ...player,
+      finalPlace: index + 1,
+    }));
+  }, [hasRealPlacements, matches, players]);
 
   if (!tournamentFinished || !sortedPlayers.length) return null;
 
@@ -909,30 +1084,46 @@ function FinalStandingsTable({ matches, players, tournamentName }) {
             </thead>
             <tbody>
               {sortedPlayers.map((player, index) => {
-                const rank = index + 1;
+                const rank = player.finalPlace ?? index + 1;
                 const highlightClass = rank <= 3 ? "is-highlighted" : "";
 
                 return (
                   <tr key={player.id || player.name}>
                     <td className="final-standings-rank">{rank}</td>
                     <td className="final-standings-player">{player.name}</td>
-                    <td className={cx("final-standings-stat", highlightClass)}>{Number(player.wins || 0)}</td>
-                    <td className={cx("final-standings-stat", highlightClass)}>{Number(player.losses || 0)}</td>
+                    <td className={cx("final-standings-stat", highlightClass)}>
+                      {Number(player.wins || 0)}
+                    </td>
+                    <td className={cx("final-standings-stat", highlightClass)}>
+                      {Number(player.losses || 0)}
+                    </td>
                     <td className={cx("final-standings-stat", highlightClass)}>
                       {Number(player.legsWon || 0)} / {Number(player.legsLost || 0)}
                     </td>
                     <td className={cx("final-standings-stat", highlightClass)}>
                       {Number(player.setsWon || 0)} / {Number(player.setsLost || 0)}
                     </td>
-                    <td className={cx("final-standings-stat", highlightClass)}>{formatStatValue(player.average, 1)}</td>
+                    <td className={cx("final-standings-stat", highlightClass)}>
+                      {formatStatValue(player.average, 1)}
+                    </td>
                     <td className={cx("final-standings-stat", highlightClass)}>
                       {formatStatValue(player.checkoutPercent, 1)}%
                     </td>
-                    <td className={cx("final-standings-stat", highlightClass)}>{Number(player.plus60 || 0)}</td>
-                    <td className={cx("final-standings-stat", highlightClass)}>{Number(player.plus100 || 0)}</td>
-                    <td className={cx("final-standings-stat", highlightClass)}>{Number(player.plus140 || 0)}</td>
-                    <td className={cx("final-standings-stat", highlightClass)}>{Number(player.plus171Or180 || 0)}</td>
-                    <td className={cx("final-standings-stat", highlightClass)}>{Number(player.bestCheckout || 0)}</td>
+                    <td className={cx("final-standings-stat", highlightClass)}>
+                      {Number(player.plus60 || 0)}
+                    </td>
+                    <td className={cx("final-standings-stat", highlightClass)}>
+                      {Number(player.plus100 || 0)}
+                    </td>
+                    <td className={cx("final-standings-stat", highlightClass)}>
+                      {Number(player.plus140 || 0)}
+                    </td>
+                    <td className={cx("final-standings-stat", highlightClass)}>
+                      {Number(player.plus171Or180 || 0)}
+                    </td>
+                    <td className={cx("final-standings-stat", highlightClass)}>
+                      {Number(player.bestCheckout || 0)}
+                    </td>
                   </tr>
                 );
               })}
@@ -956,7 +1147,6 @@ function TournamentTree({
   onRestartMatch,
   onAbortLiveMatch,
 }) {
-  const groupedRounds = useMemo(() => groupMatchesByRound(matches), [matches]);
   const groupMatches = useMemo(
     () => sortMatchesByMatchNumber(matches.filter((match) => match.group)),
     [matches],
@@ -966,6 +1156,27 @@ function TournamentTree({
     () => buildGroupTables(matches, groups, qualifiedPerGroup),
     [matches, groups, qualifiedPerGroup],
   );
+
+  const knockoutMatches = useMemo(
+    () => matches.filter((match) => !match.group),
+    [matches],
+  );
+
+  const groupedRounds = useMemo(
+    () => groupMatchesByRound(knockoutMatches),
+    [knockoutMatches],
+  );
+
+  const firstOpenRoundIndex = useMemo(() => {
+    return groupedRounds.findIndex((roundBlock) =>
+      roundBlock.matches.some((match) => match.status !== "finished"),
+    );
+  }, [groupedRounds]);
+
+  const isGroupsPhaseComplete = useMemo(() => {
+    if (!groupTables.length) return false;
+    return groupTables.every((group) => group.isComplete);
+  }, [groupTables]);
 
   if (!matches?.length) return null;
 
@@ -977,43 +1188,39 @@ function TournamentTree({
             title="Gruppenphase"
             subtitle="Alle Gruppenspiele mit aktueller Tabelle"
             badge={`${groupMatches.length} Spiele`}
+            isOpen={!isGroupsPhaseComplete}
           >
             <div className="group-sections">
               {groupTables.map((groupTable) => (
                 <div className="group-block" key={groupTable.name}>
-                  <div className="group-block-head">
-                    <div>
-                      <div className="group-block-title">{groupTable.name}</div>
-                      <div className="group-block-count">
-                        {groupTable.finishedMatches}/{groupTable.totalMatches} Spiele fertig
+                  <CollapsibleSection
+                    title={groupTable.name}
+                    subtitle={`${groupTable.finishedMatches}/${groupTable.totalMatches} Spiele fertig`}
+                    badge={groupTable.isComplete ? "Komplett" : "Laufend"}
+                    isOpen={!groupTable.isComplete}
+                  >
+                    <div className="group-block-layout">
+                      <GroupStandingsTable
+                        standings={groupTable.standings}
+                        qualifiedPerGroup={qualifiedPerGroup}
+                      />
+
+                      <div className="group-match-grid">
+                        {groupTable.matches.map((match) => (
+                          <MatchCard
+                            key={`group-${match.matchNumber}`}
+                            match={match}
+                            matchMode={matchMode}
+                            onStartMatch={onStartMatch}
+                            onGiveUpMatch={onGiveUpMatch}
+                            onEditResult={onEditResult}
+                            onRestartMatch={onRestartMatch}
+                            onAbortLiveMatch={onAbortLiveMatch}
+                          />
+                        ))}
                       </div>
                     </div>
-                    <div className="group-block-count">
-                      {groupTable.isComplete ? "Komplett" : "Laufend"}
-                    </div>
-                  </div>
-
-                  <div className="group-block-layout">
-                    <GroupStandingsTable
-                      standings={groupTable.standings}
-                      qualifiedPerGroup={qualifiedPerGroup}
-                    />
-
-                    <div className="group-match-grid">
-                      {groupTable.matches.map((match) => (
-                        <MatchCard
-                          key={`group-${match.matchNumber}`}
-                          match={match}
-                          matchMode={matchMode}
-                          onStartMatch={onStartMatch}
-                          onGiveUpMatch={onGiveUpMatch}
-                          onEditResult={onEditResult}
-                          onRestartMatch={onRestartMatch}
-                          onAbortLiveMatch={onAbortLiveMatch}
-                        />
-                      ))}
-                    </div>
-                  </div>
+                  </CollapsibleSection>
                 </div>
               ))}
             </div>
@@ -1026,36 +1233,44 @@ function TournamentTree({
           title={mode === "KO" ? "KO-Phase" : "Finalrunde"}
           subtitle="Runde für Runde im Turnierbaum"
           badge={`${groupedRounds.length} Runden`}
+          isOpen={true}
         >
-          <div className="bracket compact-bracket">
-            {groupedRounds
-              .filter((roundBlock) =>
-                mode === "KO" ? true : roundBlock.matches.some((match) => !match.group),
-              )
-              .map((roundBlock) => (
-                <div
-                  className="round-column compact-round-column"
-                  key={`round-${roundBlock.round}`}
-                >
-                  <div className="round-title">Runde {roundBlock.round}</div>
+          <div className="round-sections">
+            {groupedRounds.map((roundBlock, index) => {
+              const roundMatches = sortMatchesByMatchNumber(roundBlock.matches);
+              const roundComplete = roundMatches.every((match) => match.status === "finished");
 
-                  {sortMatchesByMatchNumber(
-                    roundBlock.matches.filter((match) => (mode === "KO" ? true : !match.group)),
-                  ).map((match) => (
-                    <MatchCard
-                      key={`ko-${match.matchNumber}`}
-                      match={match}
-                      matchMode={matchMode}
-                      onStartMatch={onStartMatch}
-                      onGiveUpMatch={onGiveUpMatch}
-                      onEditResult={onEditResult}
-                      onRestartMatch={onRestartMatch}
-                      onAbortLiveMatch={onAbortLiveMatch}
-                      labelPrefix="Spiel"
-                    />
-                  ))}
-                </div>
-              ))}
+              const shouldBeOpen =
+                firstOpenRoundIndex === -1
+                  ? false
+                  : index === firstOpenRoundIndex;
+
+              return (
+                <RoundSection
+                  key={`round-${roundBlock.round}`}
+                  title={`Runde ${roundBlock.round}`}
+                  subtitle="Spiele dieser Runde"
+                  badge={`${roundMatches.length} ${roundMatches.length === 1 ? "Spiel" : "Spiele"}`}
+                  isOpen={!roundComplete && shouldBeOpen}
+                >
+                  <div className="round-match-grid">
+                    {roundMatches.map((match) => (
+                      <MatchCard
+                        key={`ko-${match.matchNumber}`}
+                        match={match}
+                        matchMode={matchMode}
+                        onStartMatch={onStartMatch}
+                        onGiveUpMatch={onGiveUpMatch}
+                        onEditResult={onEditResult}
+                        onRestartMatch={onRestartMatch}
+                        onAbortLiveMatch={onAbortLiveMatch}
+                        labelPrefix="Spiel"
+                      />
+                    ))}
+                  </div>
+                </RoundSection>
+              );
+            })}
           </div>
         </CollapsibleSection>
       </div>
@@ -1078,6 +1293,7 @@ export default function TournamentApp() {
   const [legsOfSet, setLegsOfSet] = useState(3);
   const [groupSize, setGroupSize] = useState(4);
   const [qualifiers, setQualifiers] = useState(2);
+  const [playAllPlaces, setPlayAllPlaces] = useState(false);
   const [playerName, setPlayerName] = useState("");
   const [players, setPlayers] = useState(DEFAULT_PLAYERS);
   const [tournamentEnvironment, setTournamentEnvironment] = useState("online");
@@ -1123,6 +1339,7 @@ export default function TournamentApp() {
       legsOfSet,
       groupSize,
       qualifiers,
+      playAllPlaces,
     }),
     [
       baseScore,
@@ -1137,6 +1354,7 @@ export default function TournamentApp() {
       legsOfSet,
       groupSize,
       qualifiers,
+      playAllPlaces,
     ],
   );
 
@@ -1162,6 +1380,7 @@ export default function TournamentApp() {
       if (s.legsOfSet != null) setLegsOfSet(Number(s.legsOfSet) || 3);
       if (s.groupSize != null) setGroupSize(Number(s.groupSize) || 4);
       if (s.qualifiers != null) setQualifiers(Number(s.qualifiers) || 2);
+      if (typeof s.playAllPlaces === "boolean") setPlayAllPlaces(s.playAllPlaces);
     }
 
     setScreen(nextScreen);
@@ -1356,6 +1575,7 @@ export default function TournamentApp() {
         selectedBoards,
         groupSize,
         qualifiers,
+        currentSettings,
       );
 
       await db.updateTournamentSetup(result.id, {
@@ -1486,14 +1706,14 @@ export default function TournamentApp() {
       setSelectedBoardId("");
       setSelectedMatch(null);
     } catch (error) {
-  if (matchWindow) {
-    try {
-      matchWindow.close();
-    } catch (_) {}
-  }
+      if (matchWindow) {
+        try {
+          matchWindow.close();
+        } catch (_) {}
+      }
 
-  handleAutodartsApiError(error, "Spiel konnte nicht gestartet werden.");
-}
+      handleAutodartsApiError(error, "Spiel konnte nicht gestartet werden.");
+    }
   }, [
     selectedMatch,
     tournamentId,
@@ -1552,17 +1772,17 @@ export default function TournamentApp() {
           try {
             stats = await autodartsApi.getMatchStats(match.lobbyId);
           } catch (error) {
-           if (match?.lobbyId) {
-  try {
-    stats = await autodartsApi.getMatchStats(match.lobbyId);
-  } catch (error) {
-    if (error?.code === "TOKEN_REFRESH_REQUIRED") {
-      throw error;
-    }
+            if (match?.lobbyId) {
+              try {
+                stats = await autodartsApi.getMatchStats(match.lobbyId);
+              } catch (error) {
+                if (error?.code === "TOKEN_REFRESH_REQUIRED") {
+                  throw error;
+                }
 
-    console.warn("Stats beim Abbrechen konnten nicht geladen werden", error);
-  }
-}
+                console.warn("Stats beim Abbrechen konnten nicht geladen werden", error);
+              }
+            }
           }
         }
 
@@ -1582,8 +1802,8 @@ export default function TournamentApp() {
           finalPlayerStats: stats ? extractFinalPlayerStatsFromAutodartsStats(stats) : null,
         });
       } catch (error) {
-  handleAutodartsApiError(error, "Live-Spiel konnte nicht abgebrochen werden.");
-}
+        handleAutodartsApiError(error, "Live-Spiel konnte nicht abgebrochen werden.");
+      }
     },
     [getBoardDocForMatch, tournamentId],
   );
@@ -1710,7 +1930,6 @@ export default function TournamentApp() {
   const tournamentFinished = useMemo(() => isTournamentFinished(matches), [matches]);
 
   const renderHome = () => {
-
     if (screen === "create") {
       return (
         <div className="tournament-layout">
@@ -1732,7 +1951,9 @@ export default function TournamentApp() {
                   if (e.key === "Enter") addPlayer();
                 }}
               />
-              <button className="btn btn--primary" onClick={addPlayer}>Hinzufügen</button>
+              <button className="btn btn--primary" onClick={addPlayer}>
+                Hinzufügen
+              </button>
             </div>
 
             <div className="players-list">
@@ -1756,8 +1977,9 @@ export default function TournamentApp() {
 
             <div className="form-hero">
               <h2>AutoDarts Turnier erstellen</h2>
-              <div className="panel-subtitle">Erstelle ein KO- oder Gruppen-Turnier für Autodarts.</div>
-              <div className="panel-subtitle">Typ: {tournamentEnvironment === "online" ? "Online" : "Offline"} (Platzhalter)</div>
+              <div className="panel-subtitle">
+                Erstelle ein KO- oder Gruppen-Turnier für Autodarts.
+              </div>
             </div>
 
             <div className="config-sections">
@@ -1766,7 +1988,10 @@ export default function TournamentApp() {
                 <div className="grid">
                   <div className="field">
                     <label>Turniername</label>
-                    <input value={tournamentName} onChange={(e) => setTournamentName(e.target.value)} />
+                    <input
+                      value={tournamentName}
+                      onChange={(e) => setTournamentName(e.target.value)}
+                    />
                   </div>
 
                   <div className="field">
@@ -1784,7 +2009,10 @@ export default function TournamentApp() {
                 <div className="grid">
                   <div className="field">
                     <label>Startscore</label>
-                    <select value={baseScore} onChange={(e) => setBaseScore(Number(e.target.value))}>
+                    <select
+                      value={baseScore}
+                      onChange={(e) => setBaseScore(Number(e.target.value))}
+                    >
                       {SCORE_OPTIONS.map((option) => (
                         <option key={option} value={option}>
                           {option}
@@ -1817,7 +2045,10 @@ export default function TournamentApp() {
 
                   <div className="field">
                     <label>Maximale Runden</label>
-                    <select value={maxRounds} onChange={(e) => setMaxRounds(Number(e.target.value))}>
+                    <select
+                      value={maxRounds}
+                      onChange={(e) => setMaxRounds(Number(e.target.value))}
+                    >
                       {MAX_ROUNDS_OPTIONS.map((option) => (
                         <option key={option} value={option}>
                           {option}
@@ -1907,7 +2138,10 @@ export default function TournamentApp() {
                   <div className="grid">
                     <div className="field">
                       <label>Spieler pro Gruppe</label>
-                      <select value={groupSize} onChange={(e) => setGroupSize(Number(e.target.value))}>
+                      <select
+                        value={groupSize}
+                        onChange={(e) => setGroupSize(Number(e.target.value))}
+                      >
                         {GROUP_SIZE_OPTIONS.map((option) => (
                           <option key={option} value={option}>
                             {option}
@@ -1932,6 +2166,22 @@ export default function TournamentApp() {
                   </div>
                 </div>
               )}
+
+              <div className="config-card">
+                <div className="config-card-title">KO-Platzierungen</div>
+                <div className="grid">
+                  <div className="field">
+                    <label>Platzierungsspiele</label>
+                    <select
+                      value={playAllPlaces ? "all" : "top_only"}
+                      onChange={(e) => setPlayAllPlaces(e.target.value === "all")}
+                    >
+                      <option value="top_only">Nur Siegerbaum</option>
+                      <option value="all">Alle KO-Plätze ausspielen</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
 
               <div className="config-card">
                 <div className="config-card-title">Verfügbare Autodarts-Boards</div>
@@ -1975,7 +2225,11 @@ export default function TournamentApp() {
                 <button className="btn btn--secondary" onClick={() => setScreen("home")}>
                   Zurück
                 </button>
-                <button className="btn btn--primary" onClick={createTournament} disabled={creatingTournament}>
+                <button
+                  className="btn btn--primary"
+                  onClick={createTournament}
+                  disabled={creatingTournament}
+                >
                   {creatingTournament ? "Erstelle..." : "Turnier erstellen"}
                 </button>
               </div>
@@ -1991,24 +2245,26 @@ export default function TournamentApp() {
           <div className="start-card-head">
             <div>
               <h2>AutoDarts Turnier</h2>
-              <div className="start-subtitle">Turnier erstellen oder bestehendem Turnier beitreten.</div>
+              <div className="start-subtitle">
+                Turnier erstellen oder bestehendem Turnier beitreten.
+              </div>
             </div>
           </div>
 
           <div className="config-sections">
             <div className="config-card join-card">
               <div className="config-card-title">Turnier erstellen</div>
-                <div className="join-row">
-                  <input
-                    value={tournamentName}
-                    onChange={(e) => setTournamentName(e.target.value)}
-                    placeholder="Turniername eingeben"
-                  />
-                 <button className="btn btn--primary" onClick={() => setScreen("create")}>
-                 {creatingTournament ? "erstelle..." : "Erstellen"}
+              <div className="join-row">
+                <input
+                  value={tournamentName}
+                  onChange={(e) => setTournamentName(e.target.value)}
+                  placeholder="Turniername eingeben"
+                />
+                <button className="btn btn--primary" onClick={() => setScreen("create")}>
+                  {creatingTournament ? "erstelle..." : "Erstellen"}
                 </button>
-                </div>
               </div>
+            </div>
 
             <div className="config-sections">
               <div className="config-card join-card">
@@ -2019,7 +2275,11 @@ export default function TournamentApp() {
                     onChange={(e) => setJoinCode(e.target.value)}
                     placeholder="Turniercode eingeben"
                   />
-                  <button className="btn btn--primary" onClick={joinTournament} disabled={joiningTournament}>
+                  <button
+                    className="btn btn--primary"
+                    onClick={joinTournament}
+                    disabled={joiningTournament}
+                  >
                     {joiningTournament ? "Lade..." : "Beitreten"}
                   </button>
                 </div>
@@ -2104,17 +2364,13 @@ export default function TournamentApp() {
 
       {showSettingsDialog && (
         <div className="board-dialog-overlay">
-          <div
-            className="board-dialog board-dialog--wide"
-          >
+          <div className="board-dialog board-dialog--wide">
             <h3>Turniereinstellungen bearbeiten</h3>
             <div className="board-dialog-subtitle">
               Gespeicherte Einstellungen ändern und für neue Spiele übernehmen.
             </div>
 
             <div className="config-sections settings-editor-grid">
-              
-
               <div className="config-card">
                 <div className="config-card-title">Spiel-Einstellungen</div>
                 <div className="grid">
