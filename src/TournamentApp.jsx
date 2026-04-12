@@ -2906,9 +2906,9 @@ export default function TournamentApp() {
         <div className="start-card">
           <div className="start-card-head">
             <div>
-              <h2>AutoDarts Turnier</h2>
+              <h2>Tournament Extensions</h2>
               <div className="start-subtitle">
-                Turnier erstellen oder bestehendem Turnier beitreten.
+                Turniere erstellen oder bestehendem Turnier beitreten.
               </div>
             </div>
           </div>

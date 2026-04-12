@@ -1,8 +1,15 @@
 {
   "manifest_version": 3,
-  "name": "Autodarts Tournament",
+  "name": "Tournament Extension",
   "description": "Chrome extension for creating, managing and tracking Autodarts tournaments with player stats, tournament views and direct integration into play.autodarts.io.",
   "version": "1.0",
+
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "permissions": [
     "storage",
     "activeTab",
@@ -41,6 +48,6 @@
     }
   ],
   "action": {
-    "default_icon": "Logo.png"
+    "default_icon": "icons/icon32.png"
   }
 }
