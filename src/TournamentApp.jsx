@@ -117,6 +117,8 @@ const DEFAULT_PLAYERS = [
 const activeMatchWatchers = new Set();
 const cancelledMatchWatchers = new Set();
 const LAST_TOURNAMENT_STORAGE_KEY = "adTournamentLastTournamentId";
+const RECENT_TOURNAMENTS_STORAGE_KEY = "recentTournaments";
+const MAX_RECENT_TOURNAMENTS = 10;
 const DEFAULT_MATCH_SETTINGS = {
   tournamentType: DEFAULT_TOURNAMENT_TYPE,
   baseScore: 501,
@@ -289,22 +291,31 @@ function getMatchTitle(match, labelPrefix = "") {
   const roundName = String(match.displayRoundName || "").trim();
   const matchNumber = String(match.matchNumber || "").trim();
 
+  const matchNumberLabel = `${labelPrefix || "Spiel"} ${matchNumber}`;
+
   const isGroupMatch = /^[A-Z]-\d+$/i.test(matchNumber);
   const isGroupRound = /^Gruppe\s+[A-Z]$/i.test(roundName);
 
-  const matchNumberLabel = `${labelPrefix || "Spiel"} ${matchNumber}`;
+  // 👉 Gruppenspiele bleiben wie sie sind
+  if (isGroupMatch && isGroupRound) {
+    return matchNumberLabel;
+  }
+
+  // 👉 NEU: Erste KO Runde → nur "Spiel X"
+  if (
+    match.bracketType === "main" && // KO Baum
+    Number(match.round) === 1       // erste Runde
+  ) {
+    return matchNumberLabel;
+  }
 
   if (!roundName) {
     return matchNumberLabel;
   }
 
-  // Bei Gruppenspielen nur "Spiel A-1"
-  if (isGroupMatch && isGroupRound) {
-    return matchNumberLabel;
-  }
-
   const shouldSwapOrder =
-    /^Plätze\s+\d+\s*-\s*\d+$/i.test(roundName) || /^Platz\s+\d+$/i.test(roundName);
+    /^Plätze\s+\d+\s*-\s*\d+$/i.test(roundName) ||
+    /^Platz\s+\d+$/i.test(roundName);
 
   if (shouldSwapOrder) {
     return `${matchNumberLabel} – ${roundName}`;
@@ -754,6 +765,55 @@ function isTournamentFinished(matches = []) {
   return matches.every((match) => match.status === "finished");
 }
 
+function readRecentTournamentIds() {
+  try {
+    const raw = localStorage.getItem(RECENT_TOURNAMENTS_STORAGE_KEY);
+    if (!raw) return [];
+
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+  } catch (error) {
+    console.warn("Recent tournaments could not be read from localStorage.", error);
+    return [];
+  }
+}
+
+function writeRecentTournamentIds(ids = []) {
+  try {
+    const normalized = [...new Set(
+      (Array.isArray(ids) ? ids : [])
+        .map((value) => String(value || "").trim())
+        .filter(Boolean),
+    )].slice(0, MAX_RECENT_TOURNAMENTS);
+
+    localStorage.setItem(RECENT_TOURNAMENTS_STORAGE_KEY, JSON.stringify(normalized));
+    return normalized;
+  } catch (error) {
+    console.warn("Recent tournaments could not be written to localStorage.", error);
+    return [];
+  }
+}
+
+function rememberRecentTournament(tournamentId) {
+  const normalizedId = String(tournamentId || "").trim();
+  if (!normalizedId) return [];
+
+  const currentIds = readRecentTournamentIds().filter((id) => id !== normalizedId);
+  return writeRecentTournamentIds([normalizedId, ...currentIds]);
+}
+
+function removeRecentTournament(tournamentId) {
+  const normalizedId = String(tournamentId || "").trim();
+  if (!normalizedId) return readRecentTournamentIds();
+
+  const nextIds = readRecentTournamentIds().filter((id) => id !== normalizedId);
+  return writeRecentTournamentIds(nextIds);
+}
+
 function sortPlayersForFinalTable(players = []) {
   return [...players].sort((a, b) => {
     const pointsDiff = Number(b.points || 0) - Number(a.points || 0);
@@ -834,10 +894,6 @@ function getMatchResultLabel(match) {
     if (match?.winner?.type === "player") {
       return "Sieger";
     }
-  }
-
-  if (match?.bracketType === "placement") {
-    return "Weiter";
   }
 
   return "Sieger";
@@ -1749,6 +1805,8 @@ export default function TournamentApp() {
   const [loadingBoards, setLoadingBoards] = useState(false);
   const [creatingTournament, setCreatingTournament] = useState(false);
   const [joiningTournament, setJoiningTournament] = useState(false);
+  const [recentTournaments, setRecentTournaments] = useState([]);
+  const [loadingRecentTournaments, setLoadingRecentTournaments] = useState(true);
   const [isRestoringTournament, setIsRestoringTournament] = useState(true);
 
   const [showBoardDialog, setShowBoardDialog] = useState(false);
@@ -1830,6 +1888,14 @@ export default function TournamentApp() {
 
   const applyTournamentState = useCallback((tournament, nextScreen = "tournament") => {
     if (!tournament) return;
+
+    rememberRecentTournament(tournament.id);
+    setRecentTournaments((prev) => {
+      const withoutCurrent = (Array.isArray(prev) ? prev : []).filter(
+        (entry) => entry?.id !== tournament.id,
+      );
+      return [{ ...tournament, id: tournament.id }, ...withoutCurrent].slice(0, MAX_RECENT_TOURNAMENTS);
+    });
 
     setTournamentId(tournament.id);
     setTournamentCode(tournament.code || "");
@@ -2022,6 +2088,7 @@ export default function TournamentApp() {
 
         if (!tournament) {
           localStorage.removeItem(LAST_TOURNAMENT_STORAGE_KEY);
+          removeRecentTournament(savedTournamentId);
           return;
         }
 
@@ -2042,6 +2109,43 @@ export default function TournamentApp() {
     }, 0);
 
     return () => window.clearTimeout(timer);
+    const loadRecentTournaments = async () => {
+      try {
+        setLoadingRecentTournaments(true);
+        const storedIds = readRecentTournamentIds();
+
+        if (!storedIds.length) {
+          setRecentTournaments([]);
+          return;
+        }
+
+        const resolved = await Promise.all(
+          storedIds.map(async (id) => ({
+            id,
+            tournament: await db.getTournamentById(id),
+          })),
+        );
+
+        const existingTournaments = resolved
+          .filter((entry) => !!entry.tournament)
+          .map((entry) => entry.tournament);
+
+        const existingIds = existingTournaments.map((entry) => String(entry.id || "").trim()).filter(Boolean);
+        writeRecentTournamentIds(existingIds);
+        setRecentTournaments(existingTournaments);
+      } catch (error) {
+        console.error("Letzte Turniere konnten nicht geladen werden.", error);
+        setRecentTournaments([]);
+      } finally {
+        setLoadingRecentTournaments(false);
+      }
+    };
+
+    loadRecentTournaments();
+  }, []);
+
+  useEffect(() => {
+    loadBoards();
   }, [loadBoards]);
 
   useEffect(() => {
@@ -2178,6 +2282,13 @@ export default function TournamentApp() {
         },
         "tournament",
       );
+      openTournament({
+        id: result.id,
+        code: result.code,
+        name: tournamentName.trim() || "Mein Turnier",
+        type,
+        settings: tournamentSettingsPayload,
+      });
     } catch (error) {
       console.error(error);
       toast.error("Turnier konnte nicht erstellt werden.", { id: loadingToastId || undefined });
@@ -2189,12 +2300,21 @@ export default function TournamentApp() {
   const joinTournament = async () => {
     let loadingToastId = null;
 
+  const openTournament = useCallback((tournament) => {
+    if (!tournament?.id) return;
+
+    localStorage.setItem(LAST_TOURNAMENT_STORAGE_KEY, tournament.id);
+    applyTournamentState(tournament, "tournament");
+  }, [applyTournamentState]);
+
+  const joinTournament = async (codeOverride = "") => {
     try {
-      if (!joinCode.trim()) return;
+      const codeToJoin = String(codeOverride || joinCode || "").trim();
+      if (!codeToJoin) return;
       setJoiningTournament(true);
       loadingToastId = toast.loading("Lade Turnier...");
 
-      const tournament = await db.getTournamentByCode(joinCode.trim());
+      const tournament = await db.getTournamentByCode(codeToJoin);
       if (!tournament) {
         toast.error("Kein Turnier mit diesem Code gefunden.", { id: loadingToastId || undefined });
         return;
@@ -2203,6 +2323,8 @@ export default function TournamentApp() {
       localStorage.setItem(LAST_TOURNAMENT_STORAGE_KEY, tournament.id);
       toast.success("Turnier geladen.", { id: loadingToastId });
       applyTournamentState(tournament, "tournament");
+      openTournament(tournament);
+      setJoinCode("");
     } catch (error) {
       console.error(error);
       toast.error("Turnier konnte nicht geladen werden.", { id: loadingToastId || undefined });
@@ -2973,12 +3095,48 @@ export default function TournamentApp() {
                   />
                   <button
                     className="btn btn--primary"
-                    onClick={joinTournament}
+                    onClick={() => joinTournament()}
                     disabled={joiningTournament}
                   >
                     {joiningTournament ? "Lade..." : "Beitreten"}
                   </button>
                 </div>
+              </div>
+
+              <div className="config-card join-card">
+                <div className="config-card-title">Zuletzt geöffnete Turniere</div>
+
+                {loadingRecentTournaments ? (
+                  <div className="recent-tournaments-empty">Letzte Turniere werden geladen...</div>
+                ) : recentTournaments.length ? (
+                  <div className="recent-tournaments-list">
+                    {recentTournaments.map((recentTournament) => (
+                      <div key={recentTournament.id} className="recent-tournament-item">
+                        <div className="recent-tournament-main">
+                          <div className="recent-tournament-name">
+                            {recentTournament.name || "Unbenanntes Turnier"}
+                          </div>
+                          <div className="recent-tournament-meta">
+                            {recentTournament.code
+                              ? `Code: ${recentTournament.code}`
+                              : `ID: ${recentTournament.id}`}
+                          </div>
+                        </div>
+                        <button
+                          className="btn btn--primary"
+                          onClick={() => openTournament(recentTournament)}
+                          disabled={joiningTournament}
+                        >
+                          Beitreten
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="recent-tournaments-empty">
+                    Noch keine zuletzt geöffneten Turniere gespeichert.
+                  </div>
+                )}
               </div>
             </div>
           </div>
