@@ -1,3 +1,5 @@
+import toast from "./toast";
+
 const TOKEN_STORAGE_KEY = "AdTournamentExtensionBearerToken";
 const TOKEN_SAVED_AT_KEY = "AdTournamentExtensionBearerTokenSavedAT";
 
@@ -92,7 +94,7 @@ export class AutodartsApi {
     if (window.__adTourneyReloadAlertShown) return;
 
     window.__adTourneyReloadAlertShown = true;
-    alert(message);
+    toast.error(message, { id: "autodarts-login-error" });
   }
 
   async getBearerToken() {

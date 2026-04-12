@@ -7,6 +7,10 @@ async function build() {
     outfile: "./dist/TournamentDB.bundle.js",
     format: "iife",
     globalName: "TournamentDBBundle",
+    loader: {
+      ".js": "jsx",
+      ".jsx": "jsx",
+    },
   });
 
   await esbuild.build({
@@ -15,6 +19,10 @@ async function build() {
     outfile: "./dist/Logik.bundle.js",
     format: "iife",
     globalName: "LogikBundle",
+    loader: {
+      ".js": "jsx",
+      ".jsx": "jsx",
+    },
   });
 
     await esbuild.build({
@@ -23,6 +31,10 @@ async function build() {
     outfile: "./dist/AutodartsApi.bundle.js",
     format: "iife",
     globalName: "AutodartsApiBundle",
+    loader: {
+      ".js": "jsx",
+      ".jsx": "jsx",
+    },
   });
 
   await esbuild.build({

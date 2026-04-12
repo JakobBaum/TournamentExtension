@@ -6,34 +6,47 @@ let root = null;
 
 // 🔥 CSS sauber laden
 function injectCSS() {
-  if (document.getElementById("adtournament-style")) return;
+  if (document.getElementById("adtournament-style")) return true;
+
+  const target = document.head || document.documentElement || document.body;
+  if (!target) return false;
 
   const link = document.createElement("link");
   link.id = "adtournament-style";
   link.rel = "stylesheet";
   link.href = chrome.runtime.getURL("tournament.css");
 
-  document.head.appendChild(link);
+  target.appendChild(link);
+  return true;
 }
 
 // 🔥 React App mounten
 function mountTournamentApp() {
-  const container = document.getElementById("adtournament-root");
-  if (!container) {
-    console.warn("❌ adtournament-root nicht gefunden");
+  const run = () => {
+    const container = document.getElementById("adtournament-root");
+    if (!container) {
+      console.warn("❌ adtournament-root nicht gefunden");
+      return;
+    }
+
+    if (!injectCSS()) {
+      window.requestAnimationFrame(run);
+      return;
+    }
+
+    if (!root) {
+      root = createRoot(container);
+    }
+
+    root.render(<TournamentApp />);
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", run, { once: true });
     return;
   }
 
-  // CSS laden
-  injectCSS();
-
-  // React root nur einmal erstellen
-  if (!root) {
-    root = createRoot(container);
-  }
-
-  // rendern
-  root.render(<TournamentApp />);
+  run();
 }
 
 // 🔥 Event Listener (wird von content.js ausgelöst)

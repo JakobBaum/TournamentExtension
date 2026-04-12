@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import toast, { Toaster } from "./toast";
 import { TournamentDB } from "./TournamentDB";
 import { Logik } from "./Logik";
 import { AutodartsApi } from "./AutodartsApi";
@@ -11,12 +12,12 @@ function handleAutodartsApiError(error, fallbackMessage) {
   console.error(error);
 
   if (error?.code === "TOKEN_REFRESH_REQUIRED") {
-    alert("Dein Autodarts-Login ist abgelaufen oder ungültig. Bitte lade die Seite neu.");
+    toast.error("Dein Autodarts-Login ist abgelaufen oder ungültig. Bitte lade die Seite neu.");
     return true;
   }
 
   if (fallbackMessage) {
-    alert(fallbackMessage);
+    toast.error(fallbackMessage);
     return true;
   }
 
@@ -929,7 +930,7 @@ async function watchMatchUntilFinished({
       console.error("watchMatchUntilFinished error", error);
 
       if (error?.code === "TOKEN_REFRESH_REQUIRED") {
-        alert("Dein Autodarts-Login ist abgelaufen oder ungültig. Bitte lade die Seite neu.");
+        toast.error("Dein Autodarts-Login ist abgelaufen oder ungültig. Bitte lade die Seite neu.");
         stopWatching();
         return;
       }
@@ -1882,8 +1883,10 @@ export default function TournamentApp() {
   }, []);
 
   const handleSaveTournamentSettings = useCallback(async () => {
+    if (!tournamentId) return;
+    const loadingToastId = toast.loading("Speichere Turniereinstellungen...");
+
     try {
-      if (!tournamentId) return;
 
       await db.updateTournamentSetup(tournamentId, {
         name: tournamentName,
@@ -1891,10 +1894,10 @@ export default function TournamentApp() {
         settings: tournamentSettingsPayload,
       });
 
-      alert("Turniereinstellungen gespeichert.");
+      toast.success("Turniereinstellungen gespeichert.", { id: loadingToastId });
     } catch (error) {
       console.error(error);
-      alert("Turniereinstellungen konnten nicht gespeichert werden.");
+      toast.error("Turniereinstellungen konnten nicht gespeichert werden.", { id: loadingToastId });
     }
   }, [mode, tournamentId, tournamentName, tournamentSettingsPayload]);
 
@@ -1909,8 +1912,10 @@ export default function TournamentApp() {
   );
 
   const handleSaveRoundSettings = useCallback(async () => {
+    if (!tournamentId || selectedRoundNumber == null) return;
+    const loadingToastId = toast.loading(`Speichere Rundeneinstellungen für Runde ${selectedRoundNumber}...`);
+
     try {
-      if (!tournamentId || selectedRoundNumber == null) return;
 
       const nextRoundSettings = pruneRoundSettings(
         {
@@ -1933,10 +1938,10 @@ export default function TournamentApp() {
       setRoundSettingsMap(nextRoundSettings);
       setShowRoundSettingsDialog(false);
       setSelectedRoundNumber(null);
-      alert(`Rundeneinstellungen für Runde ${selectedRoundNumber} gespeichert.`);
+      toast.success(`Rundeneinstellungen für Runde ${selectedRoundNumber} gespeichert.`, { id: loadingToastId });
     } catch (error) {
       console.error(error);
-      alert("Rundeneinstellungen konnten nicht gespeichert werden.");
+      toast.error("Rundeneinstellungen konnten nicht gespeichert werden.", { id: loadingToastId });
     }
   }, [
     tournamentId,
@@ -1950,8 +1955,10 @@ export default function TournamentApp() {
   ]);
 
   const handleResetRoundSettings = useCallback(async () => {
+    if (!tournamentId || selectedRoundNumber == null) return;
+    const loadingToastId = toast.loading(`Lösche Rundeneinstellungen für Runde ${selectedRoundNumber}...`);
+
     try {
-      if (!tournamentId || selectedRoundNumber == null) return;
 
       const nextRoundSettings = { ...roundSettingsMap };
       delete nextRoundSettings[String(selectedRoundNumber)];
@@ -1970,12 +1977,13 @@ export default function TournamentApp() {
       setRoundSettingsDraft(extractMatchSettings(currentSettings));
       setShowRoundSettingsDialog(false);
       setSelectedRoundNumber(null);
-      alert(
+      toast.success(
         `Rundeneinstellungen für Runde ${selectedRoundNumber} gelöscht. Es gelten wieder die globalen Werte.`,
+        { id: loadingToastId },
       );
     } catch (error) {
       console.error(error);
-      alert("Rundeneinstellungen konnten nicht gelöscht werden.");
+      toast.error("Rundeneinstellungen konnten nicht gelöscht werden.", { id: loadingToastId });
     }
   }, [
     tournamentId,
@@ -1988,13 +1996,16 @@ export default function TournamentApp() {
   ]);
 
   const loadBoards = useCallback(async () => {
+    const loadingToastId = toast.loading("Lade Boards...");
+
     try {
       setLoadingBoards(true);
       const loadedBoards = await autodartsApi.getBoards();
       setAllBoards(Array.isArray(loadedBoards) ? loadedBoards : []);
+      toast.success("Boards geladen.", { id: loadingToastId });
     } catch (error) {
       console.error(error);
-      alert("Boards konnten nicht geladen werden. Bitte in Autodarts eingeloggt sein.");
+      toast.error("Boards konnten nicht geladen werden. Bitte in Autodarts eingeloggt sein.", { id: loadingToastId });
     } finally {
       setLoadingBoards(false);
     }
@@ -2026,7 +2037,11 @@ export default function TournamentApp() {
   }, [applyTournamentState]);
 
   useEffect(() => {
-    loadBoards();
+    const timer = window.setTimeout(() => {
+      loadBoards();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [loadBoards]);
 
   useEffect(() => {
@@ -2093,13 +2108,13 @@ export default function TournamentApp() {
 
     // ❌ Prüfen ob Name mit Zahl beginnt
     if (/^\d/.test(trimmed)) {
-      alert("Der Spielername darf nicht mit einer Zahl beginnen.");
+      toast.error("Der Spielername darf nicht mit einer Zahl beginnen.");
       return;
     }
 
     // ❌ Prüfen auf Duplikate
     if (players.some((p) => String(p).trim().toLowerCase() === trimmed.toLowerCase())) {
-      alert("Dieser Spieler ist bereits vorhanden.");
+      toast.error("Dieser Spieler ist bereits vorhanden.");
       return;
     }
 
@@ -2112,13 +2127,16 @@ export default function TournamentApp() {
   };
 
   const createTournament = async () => {
+    let loadingToastId = null;
+
     try {
       if (players.length < 2) {
-        alert("Bitte mindestens 2 Spieler hinzufügen.");
+        toast.error("Bitte mindestens 2 Spieler hinzufügen.");
         return;
       }
 
       setCreatingTournament(true);
+      loadingToastId = toast.loading("Erstelle Turnier...");
 
       const type = mode === "KO" ? "KO" : "GROUP_KO";
 
@@ -2127,7 +2145,7 @@ export default function TournamentApp() {
       );
 
       if (selectedBoards.length <= 0) {
-        alert("Bitte mindestens 1 Board hinzufügen.");
+        toast.error("Bitte mindestens 1 Board hinzufügen.", { id: loadingToastId || undefined });
         return;
       }
 
@@ -2148,6 +2166,8 @@ export default function TournamentApp() {
       });
 
       localStorage.setItem(LAST_TOURNAMENT_STORAGE_KEY, result.id);
+      toast.success("Turnier erstellt.", { id: loadingToastId });
+
       applyTournamentState(
         {
           id: result.id,
@@ -2160,28 +2180,32 @@ export default function TournamentApp() {
       );
     } catch (error) {
       console.error(error);
-      alert("Turnier konnte nicht erstellt werden.");
+      toast.error("Turnier konnte nicht erstellt werden.", { id: loadingToastId || undefined });
     } finally {
       setCreatingTournament(false);
     }
   };
 
   const joinTournament = async () => {
+    let loadingToastId = null;
+
     try {
       if (!joinCode.trim()) return;
       setJoiningTournament(true);
+      loadingToastId = toast.loading("Lade Turnier...");
 
       const tournament = await db.getTournamentByCode(joinCode.trim());
       if (!tournament) {
-        alert("Kein Turnier mit diesem Code gefunden.");
+        toast.error("Kein Turnier mit diesem Code gefunden.", { id: loadingToastId || undefined });
         return;
       }
 
       localStorage.setItem(LAST_TOURNAMENT_STORAGE_KEY, tournament.id);
+      toast.success("Turnier geladen.", { id: loadingToastId });
       applyTournamentState(tournament, "tournament");
     } catch (error) {
       console.error(error);
-      alert("Turnier konnte nicht geladen werden.");
+      toast.error("Turnier konnte nicht geladen werden.", { id: loadingToastId || undefined });
     } finally {
       setJoiningTournament(false);
     }
@@ -2192,7 +2216,7 @@ export default function TournamentApp() {
       try {
         if (!tournamentId || !match?.id) return;
         if (!freeBoards.length) {
-          alert("Kein freies Board verfügbar.");
+          toast.error("Kein freies Board verfügbar.");
           return;
         }
 
@@ -2201,7 +2225,7 @@ export default function TournamentApp() {
         setShowBoardDialog(true);
       } catch (error) {
         console.error(error);
-        alert("Spiel konnte nicht vorbereitet werden.");
+        toast.error("Spiel konnte nicht vorbereitet werden.");
       }
     },
     [freeBoards, tournamentId],
@@ -2210,6 +2234,7 @@ export default function TournamentApp() {
   const confirmStartMatch = useCallback(async () => {
     let matchWindow = null;
     let reservedBoardDoc = null;
+    let loadingToastId = null;
 
     try {
       if (!selectedMatch || !tournamentId || !selectedBoardId) return;
@@ -2217,9 +2242,11 @@ export default function TournamentApp() {
       const boardDoc = freeBoards.find((board) => board.id === selectedBoardId);
       if (!boardDoc) {
         if (matchWindow) matchWindow.close();
-        alert("Bitte ein freies Board auswählen.");
+        toast.error("Bitte ein freies Board auswählen.");
         return;
       }
+
+      loadingToastId = toast.loading("Starte Spiel...");
 
       const effectiveSettings = getEffectiveMatchSettings(
         selectedMatch,
@@ -2283,6 +2310,7 @@ export default function TournamentApp() {
       setShowBoardDialog(false);
       setSelectedBoardId("");
       setSelectedMatch(null);
+      toast.success("Spiel gestartet.", { id: loadingToastId });
     } catch (error) {
       if (reservedBoardDoc?.id && tournamentId) {
         try {
@@ -2298,6 +2326,7 @@ export default function TournamentApp() {
         } catch (_) {}
       }
 
+      if (loadingToastId) toast.dismiss(loadingToastId);
       handleAutodartsApiError(error, "Spiel konnte nicht gestartet werden.");
     }
   }, [selectedMatch, tournamentId, selectedBoardId, freeBoards, currentSettings, roundSettingsMap]);
@@ -2322,7 +2351,7 @@ export default function TournamentApp() {
         });
       } catch (error) {
         console.error(error);
-        alert("Spiel konnte nicht per Aufgabe beendet werden.");
+        toast.error("Spiel konnte nicht per Aufgabe beendet werden.");
       }
     },
     [tournamentId],
@@ -2423,7 +2452,7 @@ export default function TournamentApp() {
         setShowBoardDialog(true);
       } catch (error) {
         console.error(error);
-        alert("Spiel konnte nicht neu gestartet werden.");
+        toast.error("Spiel konnte nicht neu gestartet werden.");
       }
     },
     [freeBoards, getBoardDocForMatch, tournamentId],
@@ -2448,11 +2477,13 @@ export default function TournamentApp() {
   }, []);
 
   const handleSaveEditedResult = useCallback(async () => {
+    let loadingToastId = null;
+
     try {
       if (!tournamentId || !editingMatch) return;
 
       if (editingScore1 === "" || editingScore2 === "") {
-        alert("Bitte beide Ergebnisse eingeben.");
+        toast.error("Bitte beide Ergebnisse eingeben.");
         return;
       }
 
@@ -2466,9 +2497,11 @@ export default function TournamentApp() {
       );
 
       if (!validation.valid) {
-        alert(validation.message);
+        toast.error(validation.message);
         return;
       }
+
+      loadingToastId = toast.loading("Speichere Ergebnis...");
 
       const winner = editingWinnerSlot === "player1" ? editingMatch.player1 : editingMatch.player2;
       const loser = editingWinnerSlot === "player1" ? editingMatch.player2 : editingMatch.player1;
@@ -2485,9 +2518,10 @@ export default function TournamentApp() {
       setEditingWinnerSlot("player1");
       setEditingScore1("");
       setEditingScore2("");
+      toast.success("Ergebnis gespeichert.", { id: loadingToastId });
     } catch (error) {
       console.error(error);
-      alert("Ergebnis konnte nicht gespeichert werden.");
+      toast.error("Ergebnis konnte nicht gespeichert werden.", { id: loadingToastId || undefined });
     }
   }, [
     tournamentId,
@@ -2519,7 +2553,7 @@ export default function TournamentApp() {
         }
       } catch (error) {
         console.error(error);
-        alert("Board konnte nicht freigegeben werden.");
+        toast.error("Board konnte nicht freigegeben werden.");
       }
     },
     [tournamentId],
@@ -3615,6 +3649,19 @@ export default function TournamentApp() {
           </div>
         </div>
       )}
+      <Toaster
+        position="top-center"
+        reverseOrder={false}
+        containerStyle={{ zIndex: 2147483647 }}
+        toastOptions={{
+          duration: 3000,
+          style: {
+            background: "#1f2937",
+            color: "#fff",
+            border: "1px solid rgba(255,255,255,0.12)",
+          },
+        }}
+      />
     </>
   );
 }
