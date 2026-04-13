@@ -1151,6 +1151,7 @@
 .final-standings-table th {
   text-align: left;
   padding: 10px 12px;
+  padding-left: 0px;
   border-bottom: 2px solid rgba(255,255,255,0.14);
   color: #dbe8ff;
   font-size: 12px;
