@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Tournament Extension",
+  "name": "Dart Cup",
   "description": "Chrome extension for creating, managing and tracking Autodarts tournaments with player stats, tournament views and direct integration into play.autodarts.io.",
   "version": "1.0",
 

@@ -103,7 +103,7 @@ function injectNavButton() {
   img.style.width = "18px";
 
   const text = document.createElement("span");
-  text.innerText = "Tournament";
+  text.innerText = "Dart Cup";
 
   btn.appendChild(img);
   btn.appendChild(text);

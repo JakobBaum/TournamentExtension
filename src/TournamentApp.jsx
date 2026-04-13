@@ -3042,7 +3042,7 @@ export default function TournamentApp() {
         <div className="start-card">
           <div className="start-card-head">
             <div>
-              <h2>Tournament Extensions</h2>
+              <h2>Dart Cup</h2>
               <div className="start-subtitle">
                 Turniere erstellen oder bestehendem Turnier beitreten.
               </div>
