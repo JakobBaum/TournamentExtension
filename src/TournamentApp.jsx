@@ -1770,6 +1770,7 @@ export default function TournamentApp() {
   const [editingWinnerSlot, setEditingWinnerSlot] = useState("player1");
   const [editingScore1, setEditingScore1] = useState("");
   const [editingScore2, setEditingScore2] = useState("");
+  const [withReturnLeg, setWithReturnLeg] = useState(false);
 
   const currentSettings = useMemo(
     () => ({
@@ -2207,6 +2208,7 @@ export default function TournamentApp() {
         selectedBoards,
         groupSize,
         qualifiers,
+        withReturnLeg,
         tournamentSettingsPayload,
       );
 
@@ -2920,6 +2922,16 @@ export default function TournamentApp() {
                         ))}
                       </select>
                     </div>
+                     <div className="field">
+                    <label>Rückrunde</label>
+                    <select
+                      value={withReturnLeg ? "returnLeg" : "noReturn"}
+                      onChange={(e) => setWithReturnLeg(e.target.value === "returnLeg")}
+                    >
+                      <option value="returnLeg">Mit Rückrunde</option>
+                      <option value="noReturn">Ohne Rückrunde</option>
+                    </select>
+                  </div>
                   </div>
                 </div>
               )}

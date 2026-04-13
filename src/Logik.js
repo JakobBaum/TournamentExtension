@@ -494,7 +494,7 @@ export class Logik {
     return orderedPairs.flat();
   }
 
-  generateTournament(players, playersPerGroup = 4, qualifiedPerGroup = 2, options = {}) {
+  generateTournament(players, playersPerGroup = 4, qualifiedPerGroup = 2,withReturnLeg=false, options = {}) {
     if (!Array.isArray(players) || players.length < 2) {
       throw new Error("Mindestens 2 Spieler nötig");
     }
@@ -543,6 +543,33 @@ export class Logik {
 
           groupMatchCounter++;
         }
+      }
+
+      if(withReturnLeg){
+        for (let i = 0; i < groupPlayers.length; i++) {
+        for (let j = i + 1; j < groupPlayers.length; j++) {
+          matches.push({
+            matchNumber: `${groupLetter}-${groupMatchCounter}`,
+            round: 1,
+            group: groupName,
+            player1: groupPlayers[j],
+            player2: groupPlayers[i],
+            winner: null,
+            loser: null,
+            status: "pending",
+            boardId: null,
+            bracketType: "group",
+            placementRangeStart: null,
+            placementRangeEnd: null,
+            winnerPlace: null,
+            loserPlace: null,
+            displayRoundName: groupName,
+            placementGroupLabel: null,
+          });
+
+          groupMatchCounter++;
+        }
+      }
       }
     }
 
@@ -604,6 +631,7 @@ export class Logik {
     boards,
     playersPerGroup,
     qualifiedPerGroup,
+    withReturnLeg=false,
     settings = {},
   ) {
     let code = Math.random().toString(36).substring(2, 8);
@@ -618,10 +646,10 @@ export class Logik {
       await new Promise((r) => setTimeout(r, 0));
       data = this.generateKOTournament(playersWithIds, settings);
     } else {
-      const previewData = this.generateTournament(players, playersPerGroup, qualifiedPerGroup, settings);
+      const previewData = this.generateTournament(players, playersPerGroup, qualifiedPerGroup,withReturnLeg, settings);
       groups = await this.db.createGroups(tournamentId, previewData.groups);
       playersWithIds = await this.db.createPlayersGroups(tournamentId, groups, settings);
-      data = this.generateTournament(playersWithIds, playersPerGroup, qualifiedPerGroup, settings);
+      data = this.generateTournament(playersWithIds, playersPerGroup, qualifiedPerGroup,withReturnLeg, settings);
     }
 
     await this.db.createMatches(tournamentId, data.matches, playersWithIds);
