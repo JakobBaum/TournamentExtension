@@ -313,18 +313,19 @@ export class TournamentDB {
     return this.normalizePropagatedPlayer(sourcePlayer);
   }
 
-  buildAutoResultFromPlayers(player1, player2) {
+  buildAutoResultFromPlayers(player1, player2, currentMatch = null) {
     const p1Real = this.isRealPlayer(player1);
     const p2Real = this.isRealPlayer(player2);
     const p1Bye = this.isBye(player1);
     const p2Bye = this.isBye(player2);
+    const finishedAt = currentMatch?.finishedAt || new Date().toISOString();
 
     if (p1Real && p2Bye) {
       return {
         winner: this.normalizePropagatedPlayer(player1),
         loser: this.normalizePropagatedPlayer(player2),
         status: "finished",
-        finishedAt: new Date().toISOString(),
+        finishedAt,
         resultSource: "bye",
       };
     }
@@ -334,7 +335,7 @@ export class TournamentDB {
         winner: this.normalizePropagatedPlayer(player2),
         loser: this.normalizePropagatedPlayer(player1),
         status: "finished",
-        finishedAt: new Date().toISOString(),
+        finishedAt,
         resultSource: "bye",
       };
     }
@@ -344,7 +345,7 @@ export class TournamentDB {
         winner: this.createBye(),
         loser: this.createBye(),
         status: "finished",
-        finishedAt: new Date().toISOString(),
+        finishedAt,
         resultSource: "bye",
       };
     }
@@ -367,6 +368,32 @@ export class TournamentDB {
     }
 
     return null;
+  }
+
+
+  shouldPreserveResolvedMatch(currentMatch = null) {
+    if (!currentMatch || String(currentMatch.status || "") !== "finished") {
+      return false;
+    }
+
+    if (String(currentMatch.resultSource || "") === "bye") {
+      return false;
+    }
+
+    const winnerIsBye = this.isBye(currentMatch.winner);
+    const loserIsBye = this.isBye(currentMatch.loser);
+    const hasResolvedWinner = !!currentMatch.winner;
+    const hasResolvedLoser = !!currentMatch.loser;
+
+    if (hasResolvedWinner && hasResolvedLoser && !winnerIsBye && !loserIsBye) {
+      return true;
+    }
+
+    if (hasResolvedWinner && !winnerIsBye) {
+      return true;
+    }
+
+    return false;
   }
 
   clearMatchResultFields(preserveStats = false) {
@@ -886,6 +913,7 @@ export class TournamentDB {
         return this.normalizePropagatedPlayer(sourcePlayer);
       };
 
+      const preserveResolvedMatch = this.shouldPreserveResolvedMatch(currentMatch);
       const currentMatches = [...matchMap.values()];
       const propagatedPlayer1 =
         resolveTriggeredSourcePlayer(currentMatch.player1) ||
@@ -894,26 +922,29 @@ export class TournamentDB {
         resolveTriggeredSourcePlayer(currentMatch.player2) ||
         this.resolveSlotFromMatches(currentMatch.player2, currentMatches);
 
-      if (
-        propagatedPlayer1 &&
-        this.buildPlayerSignature(propagatedPlayer1) !==
-          this.buildPlayerSignature(currentMatch.player1)
-      ) {
-        updates.player1 = propagatedPlayer1;
-      }
+      if (!preserveResolvedMatch) {
+        if (
+          propagatedPlayer1 &&
+          this.buildPlayerSignature(propagatedPlayer1) !==
+            this.buildPlayerSignature(currentMatch.player1)
+        ) {
+          updates.player1 = propagatedPlayer1;
+        }
 
-      if (
-        propagatedPlayer2 &&
-        this.buildPlayerSignature(propagatedPlayer2) !==
-          this.buildPlayerSignature(currentMatch.player2)
-      ) {
-        updates.player2 = propagatedPlayer2;
+        if (
+          propagatedPlayer2 &&
+          this.buildPlayerSignature(propagatedPlayer2) !==
+            this.buildPlayerSignature(currentMatch.player2)
+        ) {
+          updates.player2 = propagatedPlayer2;
+        }
       }
 
       const newPlayer1 = updates.player1 ?? currentMatch.player1;
       const newPlayer2 = updates.player2 ?? currentMatch.player2;
 
-      const autoResult = this.buildAutoResultFromPlayers(newPlayer1, newPlayer2);
+      const autoResult =
+        preserveResolvedMatch ? null : this.buildAutoResultFromPlayers(newPlayer1, newPlayer2, currentMatch);
       if (autoResult) {
         Object.assign(updates, autoResult);
       }
@@ -944,6 +975,90 @@ export class TournamentDB {
 
   async advanceWinnerToNextMatch(tournamentId, sourceMatch) {
     await this.propagateFromMatch(tournamentId, sourceMatch);
+  }
+
+  async reconcileBracketState(tournamentId, maxPasses = 12) {
+    if (!tournamentId) return;
+
+    for (let pass = 0; pass < maxPasses; pass += 1) {
+      let changed = false;
+      const matches = await this.getMatchesByTournamentId(tournamentId);
+      const sortedMatches = [...matches].sort((a, b) => {
+        const roundDiff = Number(a.round || 0) - Number(b.round || 0);
+        if (roundDiff !== 0) return roundDiff;
+        return Number(a.matchNumber || 0) - Number(b.matchNumber || 0);
+      });
+      const matchMap = new Map(sortedMatches.map((entry) => [entry.id, { ...entry }]));
+
+      for (const match of sortedMatches) {
+        const currentMatch = matchMap.get(match.id) || { ...match };
+        const updates = {};
+        const preserveResolvedMatch = this.shouldPreserveResolvedMatch(currentMatch);
+
+        const resolvedPlayer1 = this.resolveSlotFromMatches(currentMatch.player1, [...matchMap.values()]);
+        const resolvedPlayer2 = this.resolveSlotFromMatches(currentMatch.player2, [...matchMap.values()]);
+
+        if (
+          !preserveResolvedMatch &&
+          resolvedPlayer1 &&
+          this.buildPlayerSignature(resolvedPlayer1) !== this.buildPlayerSignature(currentMatch.player1)
+        ) {
+          updates.player1 = resolvedPlayer1;
+        }
+
+        if (
+          !preserveResolvedMatch &&
+          resolvedPlayer2 &&
+          this.buildPlayerSignature(resolvedPlayer2) !== this.buildPlayerSignature(currentMatch.player2)
+        ) {
+          updates.player2 = resolvedPlayer2;
+        }
+
+        const nextPlayer1 = updates.player1 ?? currentMatch.player1;
+        const nextPlayer2 = updates.player2 ?? currentMatch.player2;
+        const autoResult =
+          preserveResolvedMatch ? null : this.buildAutoResultFromPlayers(nextPlayer1, nextPlayer2, currentMatch);
+
+        if (autoResult) {
+          if (
+            this.buildPlayerSignature(autoResult.winner) !== this.buildPlayerSignature(currentMatch.winner)
+          ) {
+            updates.winner = autoResult.winner;
+          }
+
+          if (
+            this.buildPlayerSignature(autoResult.loser) !== this.buildPlayerSignature(currentMatch.loser)
+          ) {
+            updates.loser = autoResult.loser;
+          }
+
+          if (String(currentMatch.status || "") !== String(autoResult.status || "")) {
+            updates.status = autoResult.status;
+          }
+
+          if (String(currentMatch.resultSource || "") !== String(autoResult.resultSource || "")) {
+            updates.resultSource = autoResult.resultSource;
+          }
+
+          if (String(currentMatch.finishedAt || "") !== String(autoResult.finishedAt || "")) {
+            updates.finishedAt = autoResult.finishedAt;
+          }
+        }
+
+        if (!Object.keys(updates).length) {
+          continue;
+        }
+
+        await updateDoc(this.tDoc(tournamentId, "matches", currentMatch.id), updates);
+        const updatedMatch = { ...currentMatch, ...updates };
+        matchMap.set(updatedMatch.id, updatedMatch);
+        changed = true;
+      }
+
+      if (!changed) {
+        break;
+      }
+    }
   }
 
   async syncGroupPhaseProgress(tournamentId, providedMatches = null) {
@@ -1032,7 +1147,7 @@ export class TournamentDB {
         const newPlayer1 = updates.player1 ?? match.player1;
         const newPlayer2 = updates.player2 ?? match.player2;
 
-        const autoResult = this.buildAutoResultFromPlayers(newPlayer1, newPlayer2);
+        const autoResult = this.buildAutoResultFromPlayers(newPlayer1, newPlayer2, match);
 
         if (autoResult) {
           Object.assign(updates, autoResult);
@@ -1192,14 +1307,35 @@ export class TournamentDB {
   }
 
   async autoAdvanceExistingWinners(tournamentId) {
-    const matches = await this.getMatchesByTournamentId(tournamentId);
+    const processedMatches = new Set();
+    let keepAdvancing = true;
 
-    const finishedMatches = matches
-      .filter((match) => match.status === "finished" && match.winner)
-      .sort((a, b) => Number(a.round) - Number(b.round));
+    while (keepAdvancing) {
+      keepAdvancing = false;
 
-    for (const match of finishedMatches) {
-      await this.propagateFromMatch(tournamentId, match, matches);
+      const matches = await this.getMatchesByTournamentId(tournamentId);
+      const finishedMatches = matches
+        .filter((match) => match.status === "finished" && (match.winner || match.loser))
+        .sort((a, b) => {
+          const roundDiff = Number(a.round || 0) - Number(b.round || 0);
+          if (roundDiff !== 0) return roundDiff;
+          return Number(a.matchNumber || 0) - Number(b.matchNumber || 0);
+        });
+
+      for (const match of finishedMatches) {
+        const signature = JSON.stringify({
+          id: match.id,
+          winner: this.buildPlayerSignature(match.winner),
+          loser: this.buildPlayerSignature(match.loser),
+          status: match.status,
+        });
+
+        if (processedMatches.has(signature)) continue;
+
+        processedMatches.add(signature);
+        keepAdvancing = true;
+        await this.propagateFromMatch(tournamentId, match, matches);
+      }
     }
   }
 
@@ -1251,18 +1387,25 @@ export class TournamentDB {
     };
 
     await Promise.all(
-      matches.map((match) =>
-        addDoc(this.tRef(tournamentId, "matches"), {
+      matches.map((match) => {
+        const winner = buildPlayer(match.winner);
+        const loser = buildPlayer(match.loser);
+        const status = match.status || "pending";
+        const isAutoByeResult =
+          status === "finished" &&
+          ((winner?.type === "bye") || (loser?.type === "bye"));
+
+        return addDoc(this.tRef(tournamentId, "matches"), {
           matchNumber: match.matchNumber,
           player1: buildPlayer(match.player1),
           player2: buildPlayer(match.player2),
-          winner: buildPlayer(match.winner),
+          winner,
           round: match.round,
           group: match.group || null,
-          status: match.status || "pending",
+          status,
           boardId: null,
           lobbyId: null,
-          loser: buildPlayer(match.loser),
+          loser,
           bracketType: match.bracketType || "main",
           placementRangeStart: match.placementRangeStart ?? null,
           placementRangeEnd: match.placementRangeEnd ?? null,
@@ -1271,15 +1414,15 @@ export class TournamentDB {
           displayRoundName: match.displayRoundName || null,
           placementGroupLabel: match.placementGroupLabel || null,
           startedAt: null,
-          finishedAt: null,
+          finishedAt: status === "finished" ? new Date().toISOString() : null,
           scorePlayer1: null,
           scorePlayer2: null,
           finalPlayerStats: null,
           statsUpdatedAt: null,
-          resultSource: null,
+          resultSource: isAutoByeResult ? "bye" : null,
           manuallyCorrectedAt: null,
-        }),
-      ),
+        });
+      }),
     );
   }
 

@@ -2146,6 +2146,11 @@ export default function TournamentApp() {
   useEffect(() => {
     if (!tournamentId) return;
 
+    db.reconcileBracketState(tournamentId)
+      .then(() => db.autoAdvanceExistingWinners(tournamentId))
+      .then(() => db.reconcileBracketState(tournamentId))
+      .catch(console.error);
+
     const unsubMatches = db.subscribeToMatches(tournamentId, (items) => {
       setMatches(sortMatchesByMatchNumber(items));
     });
